@@ -117,7 +117,7 @@
     const DUNGEON_BOSSES = {
         "/actions/combat/chimerical_den": {
             trackable: {
-                "/monsters/butterjerry":  { zh: "蝴蝶杰瑞", en: "Butterjerry" },
+                // Butterjerry excluded — too weak
                 "/monsters/jackalope":    { zh: "鹿角兔",   en: "Jackalope" },
                 "/monsters/dodocamel":    { zh: "渡渡骆驼", en: "Dodocamel" },
                 "/monsters/manticore":    { zh: "蝎狮",    en: "Manticore" },
@@ -126,7 +126,7 @@
         },
         "/actions/combat/sinister_circus": {
             trackable: {
-                "/monsters/rabid_rabbit": { zh: "疯兔",   en: "Rabid Rabbit" },
+                // Rabid Rabbit excluded — too weak
                 "/monsters/zombie_bear":  { zh: "僵尸熊",  en: "Zombie Bear" },
                 "/monsters/acrobat":      { zh: "杂技师",  en: "Acrobat" },
                 "/monsters/juggler":      { zh: "杂耍师",  en: "Juggler" },
@@ -136,7 +136,7 @@
         },
         "/actions/combat/enchanted_fortress": {
             trackable: {
-                "/monsters/enchanted_pawn":   { zh: "秘法兵",  en: "Enchanted Pawn" },
+                // Enchanted Pawn excluded — too weak
                 "/monsters/enchanted_knight": { zh: "秘法骑士", en: "Enchanted Knight" },
                 "/monsters/enchanted_bishop": { zh: "秘法主教", en: "Enchanted Bishop" },
                 "/monsters/enchanted_rook":   { zh: "秘法城堡", en: "Enchanted Rook" },

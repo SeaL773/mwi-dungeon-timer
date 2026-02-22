@@ -97,12 +97,12 @@ History (3 runs)
 
 | Dungeon                       | Floors | Final Boss      | Tracked Bosses                                        |
 |-------------------------------|--------|-----------------|-------------------------------------------------------|
-| Chimerical Den / 奇幻洞穴     | 50     | Griffin         | Butterjerry, Jackalope, Dodocamel, Manticore          |
-| Sinister Circus / 阴森马戏团  | 60     | Deranged Jester | Rabid Rabbit, Zombie Bear, Acrobat, Juggler, Magician |
-| Enchanted Fortress / 秘法要塞 | 65     | Queen + King    | Pawn, Knight, Bishop, Rook                            |
+| Chimerical Den / 奇幻洞穴     | 50     | Griffin         | Jackalope, Dodocamel, Manticore                       |
+| Sinister Circus / 阴森马戏团  | 60     | Deranged Jester | Zombie Bear, Acrobat, Juggler, Magician               |
+| Enchanted Fortress / 秘法要塞 | 65     | Queen + King    | Knight, Bishop, Rook                                  |
 | Pirate Cove / 海盗基地        | 65     | The Kraken      | Anchor Shark, Brine Marksman, Tidal Conjuror          |
 
-> **Note:** Squawker (Pirate Cove) and Captain Fishhook (wave 60 fixed) are excluded from extra boss tracking.
+> **Note:** Excluded from tracking (too weak or fixed): Squawker, Butterjerry, Rabid Rabbit, Enchanted Pawn, Captain Fishhook (wave 60 fixed).
 
 ---
 
@@ -229,12 +229,12 @@ MIT
 
 | 地牢       | 层数 | 最终Boss      | 追踪的Boss                        |
 |------------|------|---------------|-----------------------------------|
-| 奇幻洞穴   | 50   | 狮鹫          | 蝴蝶杰瑞、鹿角兔、渡渡骆驼、蝎狮     |
-| 阴森马戏团 | 60   | 小丑皇        | 疯兔、僵尸熊、杂技师、杂耍师、魔术师  |
-| 秘法要塞   | 65   | 秘法王后+国王 | 秘法兵、秘法骑士、秘法主教、秘法城堡 |
+| 奇幻洞穴   | 50   | 狮鹫          | 鹿角兔、渡渡骆驼、蝎狮               |
+| 阴森马戏团 | 60   | 小丑皇        | 僵尸熊、杂技师、杂耍师、魔术师        |
+| 秘法要塞   | 65   | 秘法王后+国王 | 秘法骑士、秘法主教、秘法城堡          |
 | 海盗基地   | 65   | 克拉肯        | 持锚鲨、海盐射手、潮汐召唤师        |
 
-> **注意：** 鹦鹉（太弱）和鱼钩船长（60层固定）不计入额外Boss统计。
+> **注意：** 以下Boss不计入统计（太弱或固定层）：鹦鹉、蝴蝶杰瑞、疯兔、秘法兵、鱼钩船长（60层固定）。
 
 ---
 

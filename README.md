@@ -41,11 +41,11 @@ Counts boss appearances on **non-fixed waves** (not multiples of 5). These rando
 
 **Chinese / 中文：**
 
-![screenshot_zh](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_zh.png)
+![partial_run_zh](images/partial_run_zh.png)
 
 **English / 英文：**
 
-![screenshot_en](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_en.png)
+![partial_run_en](images/partial_run_en.png)
 
 ---
 
@@ -177,11 +177,11 @@ MIT
 
 **中文：**
 
-![screenshot_zh](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_zh.png)
+![partial_run_zh](images/partial_run_zh.png)
 
 **英文：**
 
-![screenshot_en](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_en.png)
+![partial_run_en](images/partial_run_en.png)
 
 ---
 

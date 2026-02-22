@@ -168,6 +168,33 @@
     let runHistory = [];
     let panelExpanded = true;
 
+    // ── Persistence ──
+    const STORAGE_KEY = "dft_history";
+
+    function saveHistory() {
+        try {
+            const data = {
+                runHistory,
+                totalBossCounts,
+                totalBossPerGroup,
+                totalRuns,
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (_) {}
+    }
+
+    function loadHistory() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (data.runHistory) runHistory = data.runHistory;
+            if (data.totalBossCounts) totalBossCounts = data.totalBossCounts;
+            if (data.totalBossPerGroup) totalBossPerGroup = data.totalBossPerGroup;
+            if (data.totalRuns) totalRuns = data.totalRuns;
+        } catch (_) {}
+    }
+
     // ── Helpers ──
     function fmt(ms) {
         if (!ms || ms <= 0) return "0s";
@@ -308,6 +335,7 @@
             totalBossPerGroup = {};
             totalRuns = 0;
             isDungeonActive = false;
+            saveHistory();
             render();
         };
 
@@ -577,6 +605,7 @@
                 totalBossPerGroup[label] += count;
             }
             totalRuns++;
+            saveHistory();
         }
 
         currentRunGroups = {};
@@ -634,6 +663,7 @@
     }, 2000);
     (function wait() {
         if (document.body) {
+            loadHistory();
             updateLang();
             ensurePanel();
             render();

@@ -567,7 +567,6 @@
                 groups: JSON.parse(JSON.stringify(currentRunGroups)),
                 endTime: Date.now(),
             });
-            if (runHistory.length > 50) runHistory.shift();
 
             for (const [hrid, count] of Object.entries(currentRunBossCounts)) {
                 if (!totalBossCounts[hrid]) totalBossCounts[hrid] = 0;

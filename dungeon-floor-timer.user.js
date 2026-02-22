@@ -53,7 +53,7 @@
     }
 
     const zhStrings = {
-        title: "⏱ 地牢计时",
+        title: "⏱ 地牢计时器",
         reset: "重置",
         collapse: "收起",
         expand: "展开",

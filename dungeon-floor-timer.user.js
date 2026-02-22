@@ -16,22 +16,23 @@
     "use strict";
 
     // ── i18n ──
+    const LANG_CACHE_KEY = "dft_lang";
+
     function detectZH() {
         // 1. CN domain is always Chinese
         if (location.hostname.includes("milkywayidlecn")) return true;
         // 2. Check game's language dropdown — find the one with value "zh" or "en"
         const allInputs = document.querySelectorAll('input.MuiSelect-nativeInput');
         for (const inp of allInputs) {
-            if (inp.value === "zh") return true;
-            if (inp.value === "en") return false;
+            if (inp.value === "zh") { localStorage.setItem(LANG_CACHE_KEY, "zh"); return true; }
+            if (inp.value === "en") { localStorage.setItem(LANG_CACHE_KEY, "en"); return false; }
         }
-        // 3. Check localStorage for game settings
-        try {
-            const settings = JSON.parse(localStorage.getItem("settings") || "{}");
-            if (settings.language) return settings.language === "zh";
-        } catch (_) {}
-        // 4. Fallback: check page text
-        if (document.body?.textContent?.includes("战斗")) return true;
+        // 3. Use cached detection from last time settings was open
+        const cached = localStorage.getItem(LANG_CACHE_KEY);
+        if (cached === "zh") return true;
+        if (cached === "en") return false;
+        // 4. Fallback: check page title
+        if (document.title?.includes("银河") || document.title?.includes("奶牛")) return true;
         return false;
     }
 

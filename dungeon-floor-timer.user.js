@@ -105,15 +105,28 @@
     }
 
     function groupLabel(wave, maxWaves) {
+        if (wave === maxWaves) return `${maxWaves}`;
         const start = Math.floor((wave - 1) / GROUP) * GROUP + 1;
-        const end = Math.min(start + GROUP - 1, maxWaves);
+        let end = start + GROUP - 1;
+        // If this group would include maxWaves, cap at maxWaves-1
+        if (end >= maxWaves) end = maxWaves - 1;
         return `${start}-${end}`;
     }
 
     function allLabels(maxWaves) {
         const labels = [];
         for (let i = 1; i <= maxWaves; i += GROUP) {
-            labels.push(`${i}-${Math.min(i + GROUP - 1, maxWaves)}`);
+            const end = Math.min(i + GROUP - 1, maxWaves);
+            if (end === maxWaves && i < maxWaves) {
+                // Split: normal floors then boss floor alone
+                labels.push(`${i}-${maxWaves - 1}`);
+                labels.push(`${maxWaves}`);
+            } else if (i === maxWaves) {
+                // Boss floor already separated
+                labels.push(`${maxWaves}`);
+            } else {
+                labels.push(`${i}-${end}`);
+            }
         }
         return labels;
     }

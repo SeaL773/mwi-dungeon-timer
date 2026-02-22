@@ -39,9 +39,13 @@ Counts boss appearances on **non-fixed waves** (not multiples of 5). These rando
 
 ## Screenshots
 
-**Multiple runs with speedrun comparison / 多轮运行（带Speedrun对比）：**
+**Chinese / 中文：**
 
-![multi_run](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/multi_run.jpg)
+![screenshot_zh](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_zh.png)
+
+**English / 英文：**
+
+![screenshot_en](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_en.png)
 
 ---
 
@@ -171,9 +175,13 @@ MIT
 
 ## 截图
 
-**多轮运行（带Speedrun对比）：**
+**中文：**
 
-![multi_run](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/multi_run.jpg)
+![screenshot_zh](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_zh.png)
+
+**英文：**
+
+![screenshot_en](https://raw.githubusercontent.com/SeaL773/mwi-dungeon-timer/master/images/screenshot_en.png)
 
 ---
 

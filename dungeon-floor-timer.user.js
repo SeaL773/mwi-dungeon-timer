@@ -115,40 +115,34 @@
     // trackable = bosses that can spawn on non-fixed waves (we count these)
     // finalOnly = bosses that ONLY appear on the final wave(s) (excluded)
     const DUNGEON_BOSSES = {
+        // Only bosses that appear in randomSpawnInfoMap (can spawn on non-fixed waves)
         "/actions/combat/chimerical_den": {
             trackable: {
-                // Butterjerry excluded — too weak
-                "/monsters/jackalope":    { zh: "鹿角兔",   en: "Jackalope" },
-                "/monsters/dodocamel":    { zh: "渡渡骆驼", en: "Dodocamel" },
-                "/monsters/manticore":    { zh: "蝎狮",    en: "Manticore" },
+                // Butterjerry in random pool but too weak — excluded
+                "/monsters/jackalope":    { zh: "鹿角兔",   en: "Jackalope" },       // random 30+
             },
             finalOnly: ["/monsters/griffin"],
         },
         "/actions/combat/sinister_circus": {
             trackable: {
-                // Rabid Rabbit excluded — too weak
-                "/monsters/zombie_bear":  { zh: "僵尸熊",  en: "Zombie Bear" },
-                "/monsters/acrobat":      { zh: "杂技师",  en: "Acrobat" },
-                "/monsters/juggler":      { zh: "杂耍师",  en: "Juggler" },
-                "/monsters/magician":     { zh: "魔术师",  en: "Magician" },
+                // Rabid Rabbit in random pool but too weak — excluded
+                "/monsters/zombie_bear":  { zh: "僵尸熊",  en: "Zombie Bear" },       // random 40+
             },
             finalOnly: ["/monsters/deranged_jester"],
         },
         "/actions/combat/enchanted_fortress": {
             trackable: {
-                // Enchanted Pawn excluded — too weak
-                "/monsters/enchanted_knight": { zh: "秘法骑士", en: "Enchanted Knight" },
-                "/monsters/enchanted_bishop": { zh: "秘法主教", en: "Enchanted Bishop" },
-                "/monsters/enchanted_rook":   { zh: "秘法城堡", en: "Enchanted Rook" },
+                // Enchanted Pawn in random pool but too weak — excluded
+                // Knight, Bishop, Rook never in random pool — fixed waves only
             },
             finalOnly: ["/monsters/enchanted_queen", "/monsters/enchanted_king"],
         },
         "/actions/combat/pirate_cove": {
             trackable: {
-                // Squawker excluded — too weak
-                "/monsters/anchor_shark":    { zh: "持锚鲨",    en: "Anchor Shark" },
-                "/monsters/brine_marksman":  { zh: "海盐射手",   en: "Brine Marksman" },
-                "/monsters/tidal_conjuror":  { zh: "潮汐召唤师", en: "Tidal Conjuror" },
+                // Squawker in random pool but too weak — excluded
+                "/monsters/anchor_shark":    { zh: "持锚鲨",    en: "Anchor Shark" },  // random 40+
+                "/monsters/brine_marksman":  { zh: "海盐射手",   en: "Brine Marksman" },// random 40+
+                "/monsters/tidal_conjuror":  { zh: "潮汐召唤师", en: "Tidal Conjuror" },// random 40+
             },
             finalOnly: ["/monsters/the_kraken"],
             fixedWaveBoss: { 60: "/monsters/captain_fishhook" },

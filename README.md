@@ -39,13 +39,13 @@ Counts boss appearances on **non-fixed waves** (not multiples of 5). These rando
 
 ## Screenshots
 
-**Chinese / 中文：**
-
-![partial_run_zh](images/partial_run_zh.png)
-
-**English / 英文：**
+**Mid-dungeon join (waiting for alignment):**
 
 ![partial_run_en](images/partial_run_en.png)
+
+**Multiple runs with comparison:**
+
+`[screenshot: multi_run.png]`
 
 ---
 
@@ -175,13 +175,13 @@ MIT
 
 ## 截图
 
-**中文：**
+**中途进入（等待对齐）：**
 
-![partial_run_zh](images/partial_run_zh.png)
+![partial_run_zh.png](images/partial_run_zh.png)
 
-**英文：**
+**多轮运行（带对比）：**
 
-![partial_run_en](images/partial_run_en.png)
+`[截图占位: multi_run.png]`
 
 ---
 

@@ -1,50 +1,56 @@
-# MWI Dungeon Floor Timer
+# Dungeon Floor Timer / 地牢计时器
 
-A Tampermonkey userscript for [Milky Way Idle](https://www.milkywayidle.com/) that tracks dungeon run times per floor group with speedrun-style comparison and extra boss spawn tracking.
+A [Tampermonkey](https://www.tampermonkey.net/) userscript for [Milky Way Idle](https://www.milkywayidle.com/) that tracks dungeon run times per 5-floor group with **speedrun-style comparison** and **extra boss spawn tracking**.
 
-Works on both **English** (milkywayidle.com) and **Chinese** (milkywayidlecn.com) versions — UI language auto-detects.
+Supports both **English** and **Chinese** — auto-detects game language and switches dynamically.
+
+[![Install on Greasy Fork](https://img.shields.io/badge/Install-Greasy%20Fork-red?logo=tampermonkey)](https://greasyfork.org/scripts/XXXXX)
+
+---
 
 ## Features
 
 ### ⏱ Floor Group Timing
-Times each 5-floor group within a dungeon run (e.g., 1-5, 6-10, ..., 61-64). The **final boss wave** is always shown as its own row.
-
-| Dungeon | Floors | Boss Wave |
-|---------|--------|-----------|
-| Chimerical Den | 1-49 (groups of 5) | 50 (Griffin) |
-| Sinister Circus | 1-59 (groups of 5) | 60 (Deranged Jester) |
-| Enchanted Fortress | 1-64 (groups of 5) | 65 (Queen + King) |
-| Pirate Cove | 1-64 (groups of 5) | 65 (The Kraken) |
+Times each 5-floor group (1-5, 6-10, ...). The **final boss wave** is shown as its own row.
 
 ### 📊 Speedrun Comparison
 After your first complete run, every subsequent run shows a **Diff** column:
-- 🟢 **-Xm Xs** (green) — faster than your average
-- 🔴 **+Xm Xs** (red) — slower than your average
-- **-** (grey) — within 1 second, essentially the same
+- 🟢 **-Xm Xs** (green) — faster than average
+- 🔴 **+Xm Xs** (red) — slower than average
+- Grey — within 1 second, essentially the same
 
 ### 👹 Extra Boss Spawns
-Tracks boss spawns on **non-fixed waves** (waves that aren't multiples of 5). These are random mini-boss appearances that can slow you down.
-
-The **Extra** column shows per-group counts for the current run, and **Avg** shows the historical average across all complete runs.
-
-**Tracked bosses per dungeon:**
-
-| Dungeon | Tracked | Excluded |
-|---------|---------|----------|
-| Chimerical Den | Butterjerry, Jackalope, Dodocamel, Manticore | Griffin (wave 50 only) |
-| Sinister Circus | Rabid Rabbit, Zombie Bear, Acrobat, Juggler, Magician | Deranged Jester (wave 60 only) |
-| Enchanted Fortress | Enchanted Pawn, Knight, Bishop, Rook | Queen + King (wave 65 only) |
-| Pirate Cove | Anchor Shark, Brine Marksman, Tidal Conjuror | Kraken (65), Captain Fishhook (60), Squawker (too weak) |
+Counts boss appearances on **non-fixed waves** (not multiples of 5). These random mini-boss spawns affect your run time.
 
 ### 🛡 Smart Data Handling
-- **Mid-dungeon join**: If you load the page mid-run (e.g., at wave 43), it waits for the next clean 5-floor boundary (wave 46) before recording. Partial runs are marked and excluded from history/averages.
-- **Complete runs only**: Only runs starting from wave 1 are saved to history and used for averages.
-- **History**: Keeps the last 50 complete runs. Recent 5 shown in the panel footer.
+- **Mid-dungeon join**: If you load the page mid-run (e.g., at wave 43), it waits for the next clean 5-floor boundary before recording. Partial runs are excluded from averages.
+- **Complete runs only**: Only runs starting from wave 1 are saved to history.
+- **Persistent storage**: Complete run data saved to `localStorage` — survives page refresh.
+- **Draggable panel**: Move it anywhere. Collapse/expand with a button.
+
+---
+
+## Screenshots
+
+<!-- TODO: Add screenshots -->
+**First run (no history):**
+
+`[screenshot: first_run.png]`
+
+**Mid-dungeon join (waiting for alignment):**
+
+`[screenshot: partial_run.png]`
+
+**Multiple runs with comparison:**
+
+`[screenshot: multi_run.png]`
+
+---
 
 ## Reading the Panel
 
 ```
-⏱ Dungeon Timer                    [Reset] [Hide]
+⏱ Dungeon Timer                       [Reset] [Hide]
 Pirate Cove  Wave 32/65  Elapsed 5m 23s
 
 Floors  Time    Avg     Diff    Extra  Avg
@@ -67,33 +73,53 @@ History (12 runs)
 | **Floors** | 5-floor group range (final boss wave is separate) |
 | **Time** | Time spent on this group in the current run |
 | **Avg** | Average time across all completed runs |
-| **Diff** | Difference vs average (green = faster, red = slower) |
-| **Extra** | Number of boss spawns on non-fixed waves in this group |
-| **Avg** (Extra) | Average extra boss spawns per run for this group |
+| **Diff** | Difference vs average (🟢 faster / 🔴 slower) |
+| **Extra** | Boss spawns on non-fixed waves in this group |
+| **Avg** (Extra) | Average extra boss spawns per run |
 
 **Row colors:**
 - 🟠 Orange — currently active group
 - ⚪ White — completed group
 - 🔘 Grey — future (not yet reached)
 
+---
+
+## Supported Dungeons
+
+| Dungeon | Floors | Final Boss | Tracked Bosses |
+|---------|--------|------------|----------------|
+| Chimerical Den / 奇幻洞穴 | 50 | Griffin | Butterjerry, Jackalope, Dodocamel, Manticore |
+| Sinister Circus / 阴森马戏团 | 60 | Deranged Jester | Rabid Rabbit, Zombie Bear, Acrobat, Juggler, Magician |
+| Enchanted Fortress / 秘法要塞 | 65 | Queen + King | Pawn, Knight, Bishop, Rook |
+| Pirate Cove / 海盗基地 | 65 | The Kraken | Anchor Shark, Brine Marksman, Tidal Conjuror |
+
+> **Note:** Squawker (Pirate Cove) and Captain Fishhook (wave 60 fixed) are excluded from extra boss tracking.
+
+---
+
 ## Installation
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) browser extension
-2. Create a new userscript
-3. Paste the contents of [`dungeon-floor-timer.user.js`](dungeon-floor-timer.user.js)
-4. Save and refresh the game page
+1. Install [Tampermonkey](https://www.tampermonkey.net/)
+2. Install from [Greasy Fork](https://greasyfork.org/scripts/XXXXX) or create a new script and paste [`dungeon-floor-timer.user.js`](dungeon-floor-timer.user.js)
+3. Refresh the game page
 
-> ⚠️ The script must run at `document-start` to intercept WebSocket messages. Make sure `@run-at document-start` is in the header.
+> ⚠️ The script must run at `document-start` to intercept WebSocket messages.
+
+---
 
 ## How It Works
 
-The script wraps the game's WebSocket connection to intercept messages:
+The script wraps the game's WebSocket to intercept:
 
-- **`new_battle`** — Contains `wave` number and `monsters` array. Used to track floor progression and detect boss spawns.
-- **`init_character_data`** — Detects which dungeon you're running.
-- **`chat_message_received`** — Detects dungeon end via party system messages.
+| Message | Purpose |
+|---------|---------|
+| `new_battle` | Wave number + monster list (timing & boss detection) |
+| `init_character_data` | Detect which dungeon is active |
+| `chat_message_received` | Detect dungeon end via party system messages |
 
-No data is sent externally. Everything stays in your browser's memory (resets on page refresh).
+No data is sent externally. Everything stays in your browser.
+
+---
 
 ## License
 

@@ -16,11 +16,40 @@
     "use strict";
 
     // ── i18n ──
-    const isZH = location.hostname.includes("milkywayidlecn") ||
-                 (navigator.language || "").startsWith("zh") ||
-                 document.documentElement.lang === "zh";
+    function detectZH() {
+        // 1. CN domain is always Chinese
+        if (location.hostname.includes("milkywayidlecn")) return true;
+        // 2. Check game's language dropdown (most reliable)
+        const langInput = document.querySelector('input.MuiSelect-nativeInput[value]');
+        if (langInput) return langInput.value === "zh";
+        // 3. Check localStorage for game settings
+        try {
+            const settings = JSON.parse(localStorage.getItem("settings") || "{}");
+            if (settings.language) return settings.language === "zh";
+        } catch (_) {}
+        // 4. Fallback: check page text
+        if (document.body?.textContent?.includes("战斗")) return true;
+        return false;
+    }
 
-    const L = isZH ? {
+    let isZH = false;
+    // Re-detect language periodically (handles language switch without page reload)
+    function updateLang() {
+        const newZH = detectZH();
+        if (newZH !== isZH) {
+            isZH = newZH;
+            L = isZH ? zhStrings : enStrings;
+            // Rebuild panel header with new language
+            if (panelEl) {
+                panelEl.querySelector("#dft_hdr span").textContent = L.title;
+                panelEl.querySelector("#dft_rst").textContent = L.reset;
+                panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
+            }
+            render();
+        }
+    }
+
+    const zhStrings = {
         title: "⏱ 地牢计时",
         reset: "重置",
         collapse: "收起",
@@ -39,7 +68,8 @@
         total: "总计",
         history: "历史",
         runs: "轮",
-    } : {
+    };
+    const enStrings = {
         title: "⏱ Dungeon Timer",
         reset: "Reset",
         collapse: "Hide",
@@ -59,6 +89,7 @@
         history: "History",
         runs: "runs",
     };
+    let L = enStrings;  // default, updated by updateLang()
 
     // ── Dungeon config ──
     const DUNGEONS = {
@@ -598,6 +629,17 @@
     WrapWS.CLOSED = OrigWS.CLOSED;
     unsafeWindow.WebSocket = WrapWS;
 
-    setInterval(() => { if (isDungeonActive && panelEl) render(); }, 2000);
-    (function wait() { document.body ? (ensurePanel(), render()) : setTimeout(wait, 500); })();
+    setInterval(() => {
+        updateLang();
+        if (isDungeonActive && panelEl) render();
+    }, 2000);
+    (function wait() {
+        if (document.body) {
+            updateLang();
+            ensurePanel();
+            render();
+        } else {
+            setTimeout(wait, 500);
+        }
+    })();
 })();

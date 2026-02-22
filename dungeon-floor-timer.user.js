@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         Dungeon Floor Timer
+// @name:zh-CN   地牢计时器
 // @namespace    http://tampermonkey.net/
 // @version      1.3
-// @description  Track dungeon floor group times + extra boss spawn counter (speedrun style)
+// @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter
+// @description:zh-CN  地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @license      MIT
 // @author       SeaL773
 // @match        https://www.milkywayidle.com/*

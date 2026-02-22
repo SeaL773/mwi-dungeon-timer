@@ -19,9 +19,12 @@
     function detectZH() {
         // 1. CN domain is always Chinese
         if (location.hostname.includes("milkywayidlecn")) return true;
-        // 2. Check game's language dropdown (most reliable)
-        const langInput = document.querySelector('input.MuiSelect-nativeInput[value]');
-        if (langInput) return langInput.value === "zh";
+        // 2. Check game's language dropdown — find the one with value "zh" or "en"
+        const allInputs = document.querySelectorAll('input.MuiSelect-nativeInput');
+        for (const inp of allInputs) {
+            if (inp.value === "zh") return true;
+            if (inp.value === "en") return false;
+        }
         // 3. Check localStorage for game settings
         try {
             const settings = JSON.parse(localStorage.getItem("settings") || "{}");

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Dungeon Floor Timer
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Track dungeon floor group times + boss spawn counter (speedrun style)
+// @version      1.3
+// @description  Track dungeon floor group times + extra boss spawn counter (speedrun style)
 // @license      MIT
 // @author       SeaL773
 // @match        https://www.milkywayidle.com/*
@@ -15,56 +15,106 @@
 (function () {
     "use strict";
 
-    // ── Dungeon config ──
-    const DUNGEONS = {
-        "/actions/combat/chimerical_den":     { zhName: "奇幻洞穴", maxWaves: 50 },
-        "/actions/combat/sinister_circus":    { zhName: "阴森马戏团", maxWaves: 60 },
-        "/actions/combat/enchanted_fortress": { zhName: "秘法要塞", maxWaves: 65 },
-        "/actions/combat/pirate_cove":        { zhName: "海盗基地", maxWaves: 65 },
+    // ── i18n ──
+    const isZH = location.hostname.includes("milkywayidlecn") ||
+                 (navigator.language || "").startsWith("zh") ||
+                 document.documentElement.lang === "zh";
+
+    const L = isZH ? {
+        title: "⏱ 地牢计时",
+        reset: "重置",
+        collapse: "收起",
+        expand: "展开",
+        wave: "层",
+        elapsed: "已用",
+        waitAlign: "等待下一组开始计时...",
+        waitNext: "等待下一轮...",
+        partial: "(不完整轮)",
+        colFloor: "层数",
+        colTime: "用时",
+        colAvg: "均时",
+        colDiff: "对比",
+        colExtra: "额外",
+        colExtraAvg: "均",
+        total: "总计",
+        history: "历史",
+        runs: "轮",
+    } : {
+        title: "⏱ Dungeon Timer",
+        reset: "Reset",
+        collapse: "Hide",
+        expand: "Show",
+        wave: "Wave",
+        elapsed: "Elapsed",
+        waitAlign: "Waiting for next group...",
+        waitNext: "Waiting for next run...",
+        partial: "(partial)",
+        colFloor: "Floors",
+        colTime: "Time",
+        colAvg: "Avg",
+        colDiff: "Diff",
+        colExtra: "Extra",
+        colExtraAvg: "Avg",
+        total: "Total",
+        history: "History",
+        runs: "runs",
     };
 
+    // ── Dungeon config ──
+    const DUNGEONS = {
+        "/actions/combat/chimerical_den":     { zhName: "奇幻洞穴", enName: "Chimerical Den", maxWaves: 50 },
+        "/actions/combat/sinister_circus":    { zhName: "阴森马戏团", enName: "Sinister Circus", maxWaves: 60 },
+        "/actions/combat/enchanted_fortress": { zhName: "秘法要塞", enName: "Enchanted Fortress", maxWaves: 65 },
+        "/actions/combat/pirate_cove":        { zhName: "海盗基地", enName: "Pirate Cove", maxWaves: 65 },
+    };
+
+    function dungeonName(hrid) {
+        const d = DUNGEONS[hrid];
+        if (!d) return hrid;
+        return isZH ? d.zhName : d.enName;
+    }
+
     // Boss definitions per dungeon
-    // trackable = bosses that can spawn randomly on non-fixed waves (we count these)
-    // finalOnly = bosses that ONLY appear on the final wave(s) (don't count)
-    // fixedOnly = bosses guaranteed on specific fixed waves like wave 60 captain fishhook (don't count)
+    // trackable = bosses that can spawn on non-fixed waves (we count these)
+    // finalOnly = bosses that ONLY appear on the final wave(s) (excluded)
     const DUNGEON_BOSSES = {
         "/actions/combat/chimerical_den": {
             trackable: {
-                "/monsters/butterjerry":  "蝴蝶杰瑞",
-                "/monsters/jackalope":    "鹿角兔",
-                "/monsters/dodocamel":    "渡渡骆驼",
-                "/monsters/manticore":    "蝎狮",
+                "/monsters/butterjerry":  { zh: "蝴蝶杰瑞", en: "Butterjerry" },
+                "/monsters/jackalope":    { zh: "鹿角兔",   en: "Jackalope" },
+                "/monsters/dodocamel":    { zh: "渡渡骆驼", en: "Dodocamel" },
+                "/monsters/manticore":    { zh: "蝎狮",    en: "Manticore" },
             },
-            finalOnly: ["/monsters/griffin"],  // 狮鹫 - wave 50 only
+            finalOnly: ["/monsters/griffin"],
         },
         "/actions/combat/sinister_circus": {
             trackable: {
-                "/monsters/rabid_rabbit": "疯兔",
-                "/monsters/zombie_bear":  "僵尸熊",
-                "/monsters/acrobat":      "杂技师",
-                "/monsters/juggler":      "杂耍师",
-                "/monsters/magician":     "魔术师",
+                "/monsters/rabid_rabbit": { zh: "疯兔",   en: "Rabid Rabbit" },
+                "/monsters/zombie_bear":  { zh: "僵尸熊",  en: "Zombie Bear" },
+                "/monsters/acrobat":      { zh: "杂技师",  en: "Acrobat" },
+                "/monsters/juggler":      { zh: "杂耍师",  en: "Juggler" },
+                "/monsters/magician":     { zh: "魔术师",  en: "Magician" },
             },
-            finalOnly: ["/monsters/deranged_jester"],  // 小丑皇 - wave 60 only
+            finalOnly: ["/monsters/deranged_jester"],
         },
         "/actions/combat/enchanted_fortress": {
             trackable: {
-                "/monsters/enchanted_pawn":   "秘法兵",
-                "/monsters/enchanted_knight": "秘法骑士",
-                "/monsters/enchanted_bishop": "秘法主教",
-                "/monsters/enchanted_rook":   "秘法城堡",
+                "/monsters/enchanted_pawn":   { zh: "秘法兵",  en: "Enchanted Pawn" },
+                "/monsters/enchanted_knight": { zh: "秘法骑士", en: "Enchanted Knight" },
+                "/monsters/enchanted_bishop": { zh: "秘法主教", en: "Enchanted Bishop" },
+                "/monsters/enchanted_rook":   { zh: "秘法城堡", en: "Enchanted Rook" },
             },
-            finalOnly: ["/monsters/enchanted_queen", "/monsters/enchanted_king"],  // wave 65
+            finalOnly: ["/monsters/enchanted_queen", "/monsters/enchanted_king"],
         },
         "/actions/combat/pirate_cove": {
             trackable: {
-                // 鹦鹉(squawker)排除 — 太弱不算
-                "/monsters/anchor_shark":    "持锚鲨",
-                "/monsters/brine_marksman":  "海盐射手",
-                "/monsters/tidal_conjuror":  "潮汐召唤师",
+                // Squawker excluded — too weak
+                "/monsters/anchor_shark":    { zh: "持锚鲨",    en: "Anchor Shark" },
+                "/monsters/brine_marksman":  { zh: "海盐射手",   en: "Brine Marksman" },
+                "/monsters/tidal_conjuror":  { zh: "潮汐召唤师", en: "Tidal Conjuror" },
             },
-            finalOnly: ["/monsters/the_kraken"],         // 克拉肯 - wave 65 only
-            fixedWaveBoss: { 60: "/monsters/captain_fishhook" },  // 鱼钩船长 - wave 60 fixed
+            finalOnly: ["/monsters/the_kraken"],
+            fixedWaveBoss: { 60: "/monsters/captain_fishhook" },
         },
     };
 
@@ -77,12 +127,12 @@
     let dungeonStartTime = null;
     let isDungeonActive = false;
     let waitingForCleanGroup = false;
-    let isPartialRun = false;        // true = joined mid-dungeon, don't save to history
+    let isPartialRun = false;
     let currentRunGroups = {};
-    let currentRunBossCounts = {};   // { bossHrid: count } for current run (total)
-    let currentRunBossPerGroup = {}; // { "1-5": count } boss spawns on non-fixed waves per group
-    let totalBossCounts = {};        // accumulated across all runs
-    let totalBossPerGroup = {};      // { "1-5": totalCount } across all runs
+    let currentRunBossCounts = {};
+    let currentRunBossPerGroup = {};
+    let totalBossCounts = {};
+    let totalBossPerGroup = {};
     let totalRuns = 0;
     let runHistory = [];
     let panelExpanded = true;
@@ -108,7 +158,6 @@
         if (wave === maxWaves) return `${maxWaves}`;
         const start = Math.floor((wave - 1) / GROUP) * GROUP + 1;
         let end = start + GROUP - 1;
-        // If this group would include maxWaves, cap at maxWaves-1
         if (end >= maxWaves) end = maxWaves - 1;
         return `${start}-${end}`;
     }
@@ -118,11 +167,9 @@
         for (let i = 1; i <= maxWaves; i += GROUP) {
             const end = Math.min(i + GROUP - 1, maxWaves);
             if (end === maxWaves && i < maxWaves) {
-                // Split: normal floors then boss floor alone
                 labels.push(`${i}-${maxWaves - 1}`);
                 labels.push(`${maxWaves}`);
             } else if (i === maxWaves) {
-                // Boss floor already separated
                 labels.push(`${maxWaves}`);
             } else {
                 labels.push(`${i}-${end}`);
@@ -151,7 +198,7 @@
         return avg;
     }
 
-    // ── Boss detection from new_battle monsters ──
+    // ── Boss detection ──
     function detectBosses(msg) {
         if (!currentDungeon || !msg.monsters) return;
         const bossConfig = DUNGEON_BOSSES[currentDungeon];
@@ -160,7 +207,6 @@
         const wave = msg.wave;
         const maxWaves = DUNGEONS[currentDungeon]?.maxWaves || 65;
 
-        // Skip final wave and fixed boss waves (multiples of 5)
         if (wave === maxWaves) return;
         if (wave % GROUP === 0) return;
 
@@ -170,7 +216,6 @@
         for (const monster of msg.monsters) {
             const hrid = monster.hrid;
             if (!hrid) continue;
-
             if (bossConfig.trackable[hrid]) {
                 if (!currentRunBossCounts[hrid]) currentRunBossCounts[hrid] = 0;
                 currentRunBossCounts[hrid]++;
@@ -205,10 +250,10 @@
         `;
         panelEl.innerHTML = `
             <div id="dft_hdr" style="display:flex;justify-content:space-between;align-items:center;cursor:move;margin-bottom:4px;">
-                <span style="font-weight:bold;font-size:0.95rem;color:#4fc3f7;">⏱ 地牢计时</span>
+                <span style="font-weight:bold;font-size:0.95rem;color:#4fc3f7;">${L.title}</span>
                 <div>
-                    <button id="dft_rst" style="background:#e53935;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">重置</button>
-                    <button id="dft_tog" style="background:#4fc3f7;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">收起</button>
+                    <button id="dft_rst" style="background:#e53935;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.reset}</button>
+                    <button id="dft_tog" style="background:#4fc3f7;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.collapse}</button>
                 </div>
             </div>
             <div id="dft_body">
@@ -221,7 +266,7 @@
         panelEl.querySelector("#dft_tog").onclick = () => {
             panelExpanded = !panelExpanded;
             panelEl.querySelector("#dft_body").style.display = panelExpanded ? "" : "none";
-            panelEl.querySelector("#dft_tog").textContent = panelExpanded ? "收起" : "展开";
+            panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
         };
         panelEl.querySelector("#dft_rst").onclick = () => {
             runHistory = [];
@@ -255,7 +300,7 @@
         panelEl.style.display = "";
 
         const maxWaves = currentDungeon && DUNGEONS[currentDungeon] ? DUNGEONS[currentDungeon].maxWaves : 65;
-        const dName = currentDungeon && DUNGEONS[currentDungeon] ? DUNGEONS[currentDungeon].zhName : "地牢";
+        const dName = currentDungeon ? dungeonName(currentDungeon) : (isZH ? "地牢" : "Dungeon");
         const labels = allLabels(maxWaves);
         const histAvg = getHistoryAvg();
         const hasHistory = runHistory.length > 0;
@@ -266,16 +311,16 @@
             const elapsed = dungeonStartTime ? Date.now() - dungeonStartTime : 0;
             if (waitingForCleanGroup) {
                 statusEl.innerHTML = `<span style="color:#4fc3f7;">${dName}</span>` +
-                    ` <span style="color:#81c784;">层 ${currentWave}/${maxWaves}</span>` +
-                    ` <span style="color:#ff9800;">等待下一组开始计时...</span>`;
+                    ` <span style="color:#81c784;">${L.wave} ${currentWave}/${maxWaves}</span>` +
+                    ` <span style="color:#ff9800;">${L.waitAlign}</span>`;
             } else {
-                const partialTag = isPartialRun ? ` <span style="color:#888;font-size:0.65rem;">(不完整轮)</span>` : "";
+                const partialTag = isPartialRun ? ` <span style="color:#888;font-size:0.65rem;">${L.partial}</span>` : "";
                 statusEl.innerHTML = `<span style="color:#4fc3f7;">${dName}</span>` +
-                    ` <span style="color:#81c784;">层 ${currentWave}/${maxWaves}</span>` +
-                    ` <span style="color:#ffb74d;">已用 ${fmt(elapsed)}</span>${partialTag}`;
+                    ` <span style="color:#81c784;">${L.wave} ${currentWave}/${maxWaves}</span>` +
+                    ` <span style="color:#ffb74d;">${L.elapsed} ${fmt(elapsed)}</span>${partialTag}`;
             }
         } else {
-            statusEl.innerHTML = `<span style="color:#aaa;">等待下一轮...</span>`;
+            statusEl.innerHTML = `<span style="color:#aaa;">${L.waitNext}</span>`;
         }
 
         // ── Timer table ──
@@ -287,15 +332,15 @@
 
             let html = `<table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
                 <thead><tr style="text-align:left;color:#4fc3f7;border-bottom:1px solid rgba(255,255,255,0.2);">
-                    <th style="padding:2px 4px;">层数</th>
-                    <th style="padding:2px 4px;">用时</th>`;
+                    <th style="padding:2px 4px;">${L.colFloor}</th>
+                    <th style="padding:2px 4px;">${L.colTime}</th>`;
             if (hasHistory) {
-                html += `<th style="padding:2px 4px;">均时</th>`;
-                html += `<th style="padding:2px 4px;">对比</th>`;
+                html += `<th style="padding:2px 4px;">${L.colAvg}</th>`;
+                html += `<th style="padding:2px 4px;">${L.colDiff}</th>`;
             }
             if (hasBossConfig) {
-                html += `<th style="padding:2px 4px;color:#ff9800;">额外</th>`;
-                if (totalRuns > 0) html += `<th style="padding:2px 4px;color:#ff9800;">均</th>`;
+                html += `<th style="padding:2px 4px;color:#ff9800;">${L.colExtra}</th>`;
+                if (totalRuns > 0) html += `<th style="padding:2px 4px;color:#ff9800;">${L.colExtraAvg}</th>`;
             }
             html += `</tr></thead><tbody>`;
 
@@ -333,15 +378,13 @@
                         html += `<td style="padding:2px 4px;">-</td>`;
                     }
                 }
-                // Boss column
                 if (hasBossConfig) {
                     const bc = currentRunBossPerGroup[label] || 0;
                     const bColor = bc > 0 ? "#ff9800" : "#555";
                     html += `<td style="padding:2px 4px;color:${bColor};">${bc}</td>`;
                     if (totalRuns > 0) {
                         const tb = totalBossPerGroup[label] || 0;
-                        const avg = (tb / totalRuns).toFixed(1);
-                        html += `<td style="padding:2px 4px;color:#aaa;">${avg}</td>`;
+                        html += `<td style="padding:2px 4px;color:#aaa;">${(tb / totalRuns).toFixed(1)}</td>`;
                     }
                 }
                 html += `</tr>`;
@@ -351,7 +394,7 @@
 
             // Total
             html += `<tr style="border-top:1px solid rgba(255,255,255,0.3);color:#4fc3f7;font-weight:bold;">`;
-            html += `<td style="padding:2px 4px;">总计</td><td style="padding:2px 4px;">${fmt(totalTime)}</td>`;
+            html += `<td style="padding:2px 4px;">${L.total}</td><td style="padding:2px 4px;">${fmt(totalTime)}</td>`;
             if (hasHistory) {
                 html += `<td style="padding:2px 4px;">${fmt(totalAvgTime)}</td>`;
                 if (totalTime > 0 && totalAvgTime > 0) {
@@ -361,7 +404,6 @@
                     else html += `<td style="padding:2px 4px;color:#66bb6a;">-${fmtDiff(diff)}</td>`;
                 } else html += `<td style="padding:2px 4px;">-</td>`;
             }
-            // Boss total
             if (hasBossConfig) {
                 const totalBoss = Object.values(currentRunBossPerGroup).reduce((s, c) => s + c, 0);
                 html += `<td style="padding:2px 4px;color:#ff9800;">${totalBoss}</td>`;
@@ -376,14 +418,12 @@
             tableEl.innerHTML = "";
         }
 
-        // Boss section removed — now integrated into the main table as a column
-
         // ── History ──
         const histEl = panelEl.querySelector("#dft_hist");
         if (runHistory.length > 0) {
             const recent = runHistory.slice(-5).reverse();
             let h = `<div style="font-size:0.7rem;color:#aaa;border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;">`;
-            h += `<span style="color:#4fc3f7;">历史 (${runHistory.length}轮)</span><br>`;
+            h += `<span style="color:#4fc3f7;">${L.history} (${runHistory.length} ${L.runs})</span><br>`;
             for (const run of recent) {
                 const total = Object.values(run.groups).reduce((s, g) => s + g.total, 0);
                 const t = new Date(run.endTime);
@@ -430,7 +470,6 @@
         const maxWaves = DUNGEONS[currentDungeon].maxWaves;
         const now = Date.now();
 
-        // New run: wave 1
         if (wave === 1) {
             if (isDungeonActive && Object.keys(currentRunGroups).length > 0) finishRun();
             currentRunGroups = {};
@@ -441,36 +480,31 @@
             waveStartTime = null;
             isDungeonActive = true;
             waitingForCleanGroup = false;
-            isPartialRun = false;  // full run from wave 1
+            isPartialRun = false;
         } else if (!isDungeonActive) {
             isDungeonActive = true;
-            dungeonStartTime = null;  // don't set yet — set when clean recording starts
+            dungeonStartTime = null;
             currentRunGroups = {};
             currentRunBossCounts = {};
             currentRunBossPerGroup = {};
             currentWave = -1;
             waveStartTime = null;
-            isPartialRun = true;  // joined mid-dungeon
+            isPartialRun = true;
             waitingForCleanGroup = !isGroupStart(wave);
-            if (!waitingForCleanGroup) {
-                dungeonStartTime = now;  // clean group start, begin timing
-            }
+            if (!waitingForCleanGroup) dungeonStartTime = now;
         }
 
-        // Detect boss spawns on this wave
         detectBosses(msg);
 
-        // Clean group boundary
         if (waitingForCleanGroup && isGroupStart(wave)) {
             waitingForCleanGroup = false;
-            dungeonStartTime = now;  // start timing from here
+            dungeonStartTime = now;
             currentWave = wave;
             waveStartTime = now;
             render();
             return;
         }
 
-        // Record previous wave time
         if (!waitingForCleanGroup && waveStartTime !== null && currentWave >= 0) {
             const elapsed = now - waveStartTime;
             const label = groupLabel(currentWave, maxWaves);
@@ -494,29 +528,25 @@
             currentRunGroups[label].count += 1;
         }
 
-        if (Object.keys(currentRunGroups).length > 0) {
-            // Only save complete runs to history (not partial/mid-join runs)
-            if (!isPartialRun) {
-                runHistory.push({
-                    dungeonHrid: currentDungeon,
-                    dungeonName: DUNGEONS[currentDungeon]?.zhName || "?",
-                    maxWaves: DUNGEONS[currentDungeon]?.maxWaves || 65,
-                    groups: JSON.parse(JSON.stringify(currentRunGroups)),
-                    endTime: Date.now(),
-                });
-                if (runHistory.length > 50) runHistory.shift();
+        if (Object.keys(currentRunGroups).length > 0 && !isPartialRun) {
+            runHistory.push({
+                dungeonHrid: currentDungeon,
+                dungeonName: dungeonName(currentDungeon),
+                maxWaves: DUNGEONS[currentDungeon]?.maxWaves || 65,
+                groups: JSON.parse(JSON.stringify(currentRunGroups)),
+                endTime: Date.now(),
+            });
+            if (runHistory.length > 50) runHistory.shift();
 
-                // Accumulate boss counts only for complete runs
-                for (const [hrid, count] of Object.entries(currentRunBossCounts)) {
-                    if (!totalBossCounts[hrid]) totalBossCounts[hrid] = 0;
-                    totalBossCounts[hrid] += count;
-                }
-                for (const [label, count] of Object.entries(currentRunBossPerGroup)) {
-                    if (!totalBossPerGroup[label]) totalBossPerGroup[label] = 0;
-                    totalBossPerGroup[label] += count;
-                }
-                totalRuns++;
+            for (const [hrid, count] of Object.entries(currentRunBossCounts)) {
+                if (!totalBossCounts[hrid]) totalBossCounts[hrid] = 0;
+                totalBossCounts[hrid] += count;
             }
+            for (const [label, count] of Object.entries(currentRunBossPerGroup)) {
+                if (!totalBossPerGroup[label]) totalBossPerGroup[label] = 0;
+                totalBossPerGroup[label] += count;
+            }
+            totalRuns++;
         }
 
         currentRunGroups = {};

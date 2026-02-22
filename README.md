@@ -1,5 +1,7 @@
 # Dungeon Floor Timer / 地牢计时器
 
+**[English](#features)** | **[中文说明](#中文说明)**
+
 A [Tampermonkey](https://www.tampermonkey.net/) userscript for [Milky Way Idle](https://www.milkywayidle.com/) that tracks dungeon run times per 5-floor group with **speedrun-style comparison** and **extra boss spawn tracking**.
 
 Supports both **English** and **Chinese** — auto-detects game language and switches dynamically.
@@ -95,12 +97,12 @@ History (3 runs)
 
 ## Supported Dungeons
 
-| Dungeon                       | Floors | Final Boss      | Tracked Bosses                                        |
-|-------------------------------|--------|-----------------|-------------------------------------------------------|
-| Chimerical Den / 奇幻洞穴     | 50     | Griffin         | Jackalope (30+)                                       |
-| Sinister Circus / 阴森马戏团  | 60     | Deranged Jester | Zombie Bear (40+)                                     |
-| Enchanted Fortress / 秘法要塞 | 65     | Queen + King    | *(none — no bosses in random pool)*                   |
-| Pirate Cove / 海盗基地        | 65     | The Kraken      | Anchor Shark, Brine Marksman, Tidal Conjuror (40+)    |
+| Dungeon                       | Floors | Final Boss      | Tracked Bosses                                     |
+|-------------------------------|--------|-----------------|----------------------------------------------------|
+| Chimerical Den / 奇幻洞穴     | 50     | Griffin         | Jackalope (30+)                                    |
+| Sinister Circus / 阴森马戏团  | 60     | Deranged Jester | Zombie Bear (40+)                                  |
+| Enchanted Fortress / 秘法要塞 | 65     | Queen + King    | *(none — no bosses in random pool)*                |
+| Pirate Cove / 海盗基地        | 65     | The Kraken      | Anchor Shark, Brine Marksman, Tidal Conjuror (40+) |
 
 > **Note:** Only bosses that appear in the game's random spawn pool are tracked. Many bosses (Manticore, Dodocamel, Magician, Juggler, Acrobat, Knight, Bishop, Rook) only spawn on fixed waves (multiples of 5) and are not tracked. Weak bosses (Squawker, Butterjerry, Rabid Rabbit, Enchanted Pawn) are also excluded.
 
@@ -227,12 +229,12 @@ MIT
 
 ## 支持的地牢
 
-| 地牢       | 层数 | 最终Boss      | 追踪的Boss                        |
-|------------|------|---------------|-----------------------------------|
-| 奇幻洞穴   | 50   | 狮鹫          | 鹿角兔 (30+)                         |
-| 阴森马戏团 | 60   | 小丑皇        | 僵尸熊 (40+)                         |
-| 秘法要塞   | 65   | 秘法王后+国王 | *（无 — 没有Boss在随机池中）*         |
-| 海盗基地   | 65   | 克拉肯        | 持锚鲨、海盐射手、潮汐召唤师 (40+)   |
+| 地牢       | 层数 | 最终Boss      | 追踪的Boss                       |
+|------------|------|---------------|----------------------------------|
+| 奇幻洞穴   | 50   | 狮鹫          | 鹿角兔 (30+)                     |
+| 阴森马戏团 | 60   | 小丑皇        | 僵尸熊 (40+)                     |
+| 秘法要塞   | 65   | 秘法王后+国王 | *（无 — 没有Boss在随机池中）*      |
+| 海盗基地   | 65   | 克拉肯        | 持锚鲨、海盐射手、潮汐召唤师 (40+) |
 
 > **注意：** 只追踪存在于游戏随机怪物池中的Boss。很多Boss（蝎狮、渡渡骆驼、魔术师、杂耍师、杂技师、秘法骑士、秘法主教、秘法城堡）只在固定层（5的倍数层）出现，不会随机刷新。弱Boss（鹦鹉、蝴蝶杰瑞、疯兔、秘法兵）虽在随机池中但已排除。
 

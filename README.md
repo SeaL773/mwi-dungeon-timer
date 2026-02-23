@@ -176,9 +176,11 @@ MIT
 ## 截图
 
 **中途进入（等待对齐）：**
+
 ![partial_run_zh](images/partial_run_zh.png)
 
 **多轮通关：**
+
 ![multi_run_zh](images/multi_run_zh.png)
 
 ---

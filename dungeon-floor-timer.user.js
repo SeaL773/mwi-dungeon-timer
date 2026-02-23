@@ -363,6 +363,8 @@
     }
 
     function shouldShow() {
+        // Don't show before character is selected
+        if (!location.search.includes("characterId")) return false;
         return isDungeonActive || Object.keys(currentRunGroups).length > 0 || runHistory.length > 0;
     }
 

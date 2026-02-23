@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -504,7 +504,8 @@
                 const total = Object.values(run.groups).reduce((s, g) => s + g.total, 0);
                 const t = new Date(run.endTime);
                 const ts = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}`;
-                h += `[${ts}] ${run.dungeonName} <span style="color:white;">${fmt(total)}</span><br>`;
+                const rName = run.dungeonHrid ? dungeonName(run.dungeonHrid) : run.dungeonName;
+                h += `[${ts}] ${rName} <span style="color:white;">${fmt(total)}</span><br>`;
             }
             h += `</div>`;
             histEl.innerHTML = h;

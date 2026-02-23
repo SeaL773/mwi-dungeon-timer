@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -75,7 +75,7 @@
         reset: "重置",
         collapse: "收起",
         expand: "展开",
-        wave: "层",
+        wave: "波次",
         elapsed: "已用",
         waitAlign: "等待下一组开始计时...",
         waitNext: "等待下一轮...",
@@ -85,10 +85,11 @@
         colAvg: "均时",
         colDiff: "对比",
         colExtra: "额外",
-        colExtraAvg: "均",
+        colExtraAvg: "平均",
         total: "总计",
         history: "历史",
         runs: "轮",
+        avgTime: "平均",
     };
     const enStrings = {
         title: "⏱ Dungeon Timer",
@@ -109,6 +110,7 @@
         total: "Total",
         history: "History",
         runs: "runs",
+        avgTime: "Avg",
     };
     let L = enStrings;  // default, updated by updateLang()
 
@@ -499,7 +501,9 @@
         if (runHistory.length > 0) {
             const recent = runHistory.slice(-5).reverse();
             let h = `<div style="font-size:0.7rem;color:#aaa;border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;">`;
-            h += `<span style="color:#4fc3f7;">${L.history} (${runHistory.length} ${L.runs})</span><br>`;
+            const allTotals = runHistory.map(r => Object.values(r.groups).reduce((s, g) => s + g.total, 0));
+            const avgTotal = allTotals.reduce((s, t) => s + t, 0) / allTotals.length;
+            h += `<span style="color:#4fc3f7;">${L.history} (${runHistory.length} ${L.runs})</span> <span style="color:#81c784;">${L.avgTime}: ${fmt(avgTotal)}</span><br>`;
             for (const run of recent) {
                 const total = Object.values(run.groups).reduce((s, g) => s + g.total, 0);
                 const t = new Date(run.endTime);

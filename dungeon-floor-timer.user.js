@@ -30,18 +30,26 @@
     function detectZH() {
         // 1. CN domain is always Chinese
         if (location.hostname.includes("milkywayidlecn")) return true;
-        // 2. Check game's language dropdown — find the one with value "zh" or "en"
+        // 2. Check game's language dropdown (most reliable when settings page is open)
         const allInputs = document.querySelectorAll('input.MuiSelect-nativeInput');
         for (const inp of allInputs) {
             if (inp.value === "zh") { localStorage.setItem(LANG_CACHE_KEY, "zh"); return true; }
             if (inp.value === "en") { localStorage.setItem(LANG_CACHE_KEY, "en"); return false; }
         }
-        // 3. Use cached detection from last time settings was open
+        // 3. Check page title (updates in real-time when language changes)
+        const title = document.title || "";
+        if (title.includes("银河") || title.includes("奶牛") || title.includes("战斗") || title.includes("技能")) {
+            localStorage.setItem(LANG_CACHE_KEY, "zh");
+            return true;
+        }
+        if (title.includes("Milky Way") || title.includes("Combat") || title.includes("Skills")) {
+            localStorage.setItem(LANG_CACHE_KEY, "en");
+            return false;
+        }
+        // 4. Fallback: cached detection
         const cached = localStorage.getItem(LANG_CACHE_KEY);
         if (cached === "zh") return true;
         if (cached === "en") return false;
-        // 4. Fallback: check page title
-        if (document.title?.includes("银河") || document.title?.includes("奶牛")) return true;
         return false;
     }
 

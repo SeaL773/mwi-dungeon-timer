@@ -45,7 +45,7 @@ Counts boss appearances on **non-fixed waves** (not multiples of 5). These rando
 
 **Multiple runs with comparison:**
 
-`[screenshot: multi_run.png]`
+![multi_run_en](images/multi_run_en.png)
 
 ---
 

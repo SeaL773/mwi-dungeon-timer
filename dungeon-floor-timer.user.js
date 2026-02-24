@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -184,27 +184,46 @@
     let totalRuns = 0;
     let runHistory = [];
     let panelExpanded = true;
+    let reachedFinalWave = false;
 
-    // ── Persistence ──
-    const STORAGE_KEY = "dft_history";
+    // ── Persistence (per-dungeon) ──
+    const STORAGE_KEY = "dft_history_v2";
+
+    function storageKeyFor(dungeonHrid) {
+        return dungeonHrid || "_unknown";
+    }
 
     function saveHistory() {
         try {
-            const data = {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            const allData = raw ? JSON.parse(raw) : {};
+            const key = storageKeyFor(currentDungeon);
+            allData[key] = {
                 runHistory,
                 totalBossCounts,
                 totalBossPerGroup,
                 totalRuns,
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(allData));
         } catch (_) {}
     }
 
     function loadHistory() {
+        loadHistoryFor(currentDungeon);
+    }
+
+    function loadHistoryFor(dungeonHrid) {
+        runHistory = [];
+        totalBossCounts = {};
+        totalBossPerGroup = {};
+        totalRuns = 0;
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return;
-            const data = JSON.parse(raw);
+            const allData = JSON.parse(raw);
+            const key = storageKeyFor(dungeonHrid);
+            const data = allData[key];
+            if (!data) return;
             if (data.runHistory) runHistory = data.runHistory;
             if (data.totalBossCounts) totalBossCounts = data.totalBossCounts;
             if (data.totalBossPerGroup) totalBossPerGroup = data.totalBossPerGroup;
@@ -352,7 +371,9 @@
             totalBossPerGroup = {};
             totalRuns = 0;
             isDungeonActive = false;
-            saveHistory();
+            reachedFinalWave = false;
+            // Clear all dungeon histories
+            localStorage.removeItem(STORAGE_KEY);
             render();
         };
 
@@ -528,16 +549,15 @@
     }
 
     function tryDetectDungeon() {
-        if (currentDungeon) return;
         try {
             const d = JSON.parse(localStorage.getItem("init_character_data") || "{}");
-            const hrid = detectDungeon(d.characterActions);
-            if (hrid) currentDungeon = hrid;
-            if (!currentDungeon && d.partyInfo?.partyActionMap) {
+            let hrid = detectDungeon(d.characterActions);
+            if (!hrid && d.partyInfo?.partyActionMap) {
                 for (const a of Object.values(d.partyInfo.partyActionMap)) {
-                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { currentDungeon = a.actionHrid; break; }
+                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { hrid = a.actionHrid; break; }
                 }
             }
+            if (hrid) switchDungeon(hrid);
         } catch (e) {}
     }
 
@@ -562,6 +582,7 @@
             isDungeonActive = true;
             waitingForCleanGroup = false;
             isPartialRun = false;
+            reachedFinalWave = false;
         } else if (!isDungeonActive) {
             isDungeonActive = true;
             dungeonStartTime = null;
@@ -571,9 +592,13 @@
             currentWave = -1;
             waveStartTime = null;
             isPartialRun = true;
+            reachedFinalWave = false;
             waitingForCleanGroup = !isGroupStart(wave);
             if (!waitingForCleanGroup) dungeonStartTime = now;
         }
+
+        // Mark when we reach the final wave (boss wave)
+        if (wave === maxWaves) reachedFinalWave = true;
 
         detectBosses(msg);
 
@@ -609,7 +634,7 @@
             currentRunGroups[label].count += 1;
         }
 
-        if (Object.keys(currentRunGroups).length > 0 && !isPartialRun) {
+        if (Object.keys(currentRunGroups).length > 0 && !isPartialRun && reachedFinalWave) {
             runHistory.push({
                 dungeonHrid: currentDungeon,
                 dungeonName: dungeonName(currentDungeon),
@@ -636,18 +661,38 @@
         isDungeonActive = false;
         waveStartTime = null;
         currentWave = -1;
+        reachedFinalWave = false;
         render();
+    }
+
+    function switchDungeon(newDungeon) {
+        if (newDungeon === currentDungeon) return;
+        // Save current dungeon's history before switching
+        if (currentDungeon) saveHistory();
+        // Reset current run state
+        if (isDungeonActive) {
+            currentRunGroups = {};
+            currentRunBossCounts = {};
+            currentRunBossPerGroup = {};
+            isDungeonActive = false;
+            waveStartTime = null;
+            currentWave = -1;
+            reachedFinalWave = false;
+        }
+        currentDungeon = newDungeon;
+        // Load the new dungeon's history
+        loadHistoryFor(newDungeon);
     }
 
     function handle(message) {
         if (message.type === "init_character_data") {
-            const d = detectDungeon(message.characterActions);
-            if (d) currentDungeon = d;
-            if (message.partyInfo?.partyActionMap) {
+            let d = detectDungeon(message.characterActions);
+            if (!d && message.partyInfo?.partyActionMap) {
                 for (const a of Object.values(message.partyInfo.partyActionMap)) {
-                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { currentDungeon = a.actionHrid; break; }
+                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { d = a.actionHrid; break; }
                 }
             }
+            if (d) switchDungeon(d);
             render();
         }
 

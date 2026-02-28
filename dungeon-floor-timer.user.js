@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -557,7 +557,17 @@
                     if (a?.actionHrid && DUNGEONS[a.actionHrid]) { hrid = a.actionHrid; break; }
                 }
             }
-            if (hrid) switchDungeon(hrid);
+            if (hrid) {
+                switchDungeon(hrid);
+            } else {
+                // Not in a dungeon (labyrinth, regular combat, etc.) — clear state
+                if (currentDungeon) {
+                    if (isDungeonActive) finishRun();
+                    currentDungeon = null;
+                    isDungeonActive = false;
+                    render();
+                }
+            }
         } catch (e) {}
     }
 
@@ -692,7 +702,14 @@
                     if (a?.actionHrid && DUNGEONS[a.actionHrid]) { d = a.actionHrid; break; }
                 }
             }
-            if (d) switchDungeon(d);
+            if (d) {
+                switchDungeon(d);
+            } else if (currentDungeon) {
+                // Switched away from dungeon (to labyrinth, regular combat, etc.)
+                if (isDungeonActive) finishRun();
+                currentDungeon = null;
+                isDungeonActive = false;
+            }
             render();
         }
 

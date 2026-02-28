@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.10
+// @version      1.11
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -185,6 +185,7 @@
     let runHistory = [];
     let panelExpanded = true;
     let reachedFinalWave = false;
+    let inLabyrinth = false;
 
     // ── Persistence (per-dungeon) ──
     const STORAGE_KEY = "dft_history_v2";
@@ -551,6 +552,20 @@
     function tryDetectDungeon() {
         try {
             const d = JSON.parse(localStorage.getItem("init_character_data") || "{}");
+
+            // Check if labyrinth is active — if so, we're NOT in a dungeon
+            if (d.labyrinth?.isActive) {
+                inLabyrinth = true;
+                if (currentDungeon) {
+                    if (isDungeonActive) finishRun();
+                    currentDungeon = null;
+                    isDungeonActive = false;
+                    render();
+                }
+                return;
+            }
+            inLabyrinth = false;
+
             let hrid = detectDungeon(d.characterActions);
             if (!hrid && d.partyInfo?.partyActionMap) {
                 for (const a of Object.values(d.partyInfo.partyActionMap)) {
@@ -574,6 +589,9 @@
     function onNewBattle(msg) {
         const wave = msg.wave;
         if (wave === undefined || wave === null) return;
+
+        // Skip labyrinth battles
+        if (inLabyrinth) return;
 
         tryDetectDungeon();
         if (!currentDungeon || !DUNGEONS[currentDungeon]) return;
@@ -696,6 +714,19 @@
 
     function handle(message) {
         if (message.type === "init_character_data") {
+            // Track labyrinth state
+            if (message.labyrinth?.isActive) {
+                inLabyrinth = true;
+                if (currentDungeon) {
+                    if (isDungeonActive) finishRun();
+                    currentDungeon = null;
+                    isDungeonActive = false;
+                }
+                render();
+                return;
+            }
+            inLabyrinth = false;
+
             let d = detectDungeon(message.characterActions);
             if (!d && message.partyInfo?.partyActionMap) {
                 for (const a of Object.values(message.partyInfo.partyActionMap)) {
@@ -705,12 +736,25 @@
             if (d) {
                 switchDungeon(d);
             } else if (currentDungeon) {
-                // Switched away from dungeon (to labyrinth, regular combat, etc.)
                 if (isDungeonActive) finishRun();
                 currentDungeon = null;
                 isDungeonActive = false;
             }
             render();
+        }
+
+        // Track labyrinth enter/exit from dedicated messages
+        if (message.type === "labyrinth_update" || message.type === "labyrinth_enter") {
+            inLabyrinth = true;
+            if (currentDungeon) {
+                if (isDungeonActive) finishRun();
+                currentDungeon = null;
+                isDungeonActive = false;
+                render();
+            }
+        }
+        if (message.type === "labyrinth_exit") {
+            inLabyrinth = false;
         }
 
         if (message.type === "new_battle") onNewBattle(message);

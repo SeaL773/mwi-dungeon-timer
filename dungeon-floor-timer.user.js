@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.12
+// @version      1.13
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -328,14 +328,20 @@
 
     // ── Panel ──
     let panelEl = null;
+    let panelEventsController = null;
 
     function ensurePanel() {
-        if (panelEl) return;
+        // React can replace the document body during route transitions. Do not
+        // keep using a panel node that is no longer attached to the document.
+        if (panelEl?.isConnected && panelEl.ownerDocument === document) return;
+        panelEventsController?.abort();
+        panelEventsController = new AbortController();
+        panelEl = null;
         if (!document.body) return;
 
         panelEl = document.createElement("div");
         panelEl.style.cssText = `
-            position:fixed; top:50px; right:50px; z-index:9999;
+            position:fixed; top:50px; right:50px; z-index:2147483647;
             font-size:0.8rem; padding:8px 10px; border-radius:16px;
             box-shadow:rgba(0,0,0,0.3) 0 4px 12px;
             overflow:auto; max-height:80vh;
@@ -385,14 +391,16 @@
         let dx, dy, dragging = false;
         const hdr = panelEl.querySelector("#dft_hdr");
         hdr.onmousedown = e => { dragging = true; dx = e.clientX - panelEl.getBoundingClientRect().left; dy = e.clientY - panelEl.getBoundingClientRect().top; e.preventDefault(); };
-        document.addEventListener("mousemove", e => { if (!dragging) return; panelEl.style.left = (e.clientX - dx) + "px"; panelEl.style.top = (e.clientY - dy) + "px"; panelEl.style.right = "auto"; });
-        document.addEventListener("mouseup", () => { dragging = false; });
+        const eventOptions = { signal: panelEventsController.signal };
+        document.addEventListener("mousemove", e => { if (!dragging) return; panelEl.style.left = (e.clientX - dx) + "px"; panelEl.style.top = (e.clientY - dy) + "px"; panelEl.style.right = "auto"; }, eventOptions);
+        document.addEventListener("mouseup", () => { dragging = false; }, eventOptions);
     }
 
     function shouldShow() {
-        // Don't show before character is selected
-        if (!location.search.includes("characterId")) return false;
-        return isDungeonActive || Object.keys(currentRunGroups).length > 0 || runHistory.length > 0;
+        // The game no longer consistently exposes characterId in the URL.
+        // The panel is harmless while idle and must remain discoverable after
+        // client-side route changes, so visibility is driven by timer state.
+        return Boolean(currentDungeon) || isDungeonActive || Object.keys(currentRunGroups).length > 0 || runHistory.length > 0;
     }
 
     function render() {
@@ -789,8 +797,10 @@
     unsafeWindow.WebSocket = WrapWS;
 
     setInterval(() => {
+        tryDetectDungeon();
+        ensurePanel();
         updateLang();
-        if (isDungeonActive && panelEl) render();
+        render();
     }, 2000);
     (function wait() {
         if (document.body) {

@@ -127,7 +127,11 @@ History (3 runs)
 
 ## How It Works
 
-The script wraps the game's WebSocket to intercept:
+The script hooks the `MessageEvent` data getter to read the game's WebSocket
+traffic. Unlike wrapping the `WebSocket` constructor, this works no matter when
+the script is injected — if the game connects first, messages are still seen.
+It chains through any getter another userscript already installed, so MWITools
+and friends keep working. Messages intercepted:
 
 | Message                 | Purpose                                              |
 |-------------------------|------------------------------------------------------|
@@ -294,7 +298,9 @@ MIT
 
 ## 工作原理
 
-通过包装游戏的 WebSocket 连接拦截消息：
+脚本通过挂钩 `MessageEvent` 的 data getter 读取游戏的 WebSocket 消息。相比包装
+`WebSocket` 构造函数，这种方式不依赖脚本注入时机——即使游戏先建立连接也照样能收到。
+它会串接其他脚本已经安装的 getter，因此 MWITools 之类的插件不受影响。拦截的消息：
 
 | 消息类型                | 用途                                  |
 |-------------------------|---------------------------------------|

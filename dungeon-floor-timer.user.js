@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.17
+// @version      1.18
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -960,19 +960,35 @@
         }
     }
 
-    // ── WebSocket wrap ──
-    // `class ... extends` keeps the prototype chain and the static readyState
-    // constants intact, so `ws instanceof WebSocket` still holds for game code.
-    const OrigWS = unsafeWindow.WebSocket;
-    class WrapWS extends OrigWS {
-        constructor(...args) {
-            super(...args);
-            this.addEventListener("message", e => {
-                try { handle(JSON.parse(e.data)); } catch (_) {}
-            });
+    // ── Message hook ──
+    // Wrapping the WebSocket constructor only works when the script is injected
+    // before the game opens its socket. That is not guaranteed: on a slower
+    // machine, or when other userscripts run first, the game connects before us
+    // and every message bypasses the wrapper for the whole session.
+    //
+    // Hooking the MessageEvent data getter instead works whatever the injection
+    // order, because it runs when the game itself reads event.data on an already
+    // open socket. Other MWI scripts hook the same getter; chaining through the
+    // previous getter and de-duplicating per event keeps them all working.
+    const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+    const GAME_SOCKET = /milkywayidle(cn)?\.com\/ws/;
+    const handledEvents = new WeakSet();
+    const dataDescriptor = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
+    const readData = dataDescriptor.get;
+    dataDescriptor.get = function () {
+        const data = readData.call(this);
+        if (!handledEvents.has(this)) {
+            handledEvents.add(this);
+            try {
+                const socket = this.currentTarget;
+                if (typeof data === "string" && typeof socket?.url === "string" && GAME_SOCKET.test(socket.url)) {
+                    handle(JSON.parse(data));
+                }
+            } catch (_) {}
         }
-    }
-    unsafeWindow.WebSocket = WrapWS;
+        return data;
+    };
+    Object.defineProperty(win.MessageEvent.prototype, "data", dataDescriptor);
 
     setInterval(() => {
         tryDetectDungeon();

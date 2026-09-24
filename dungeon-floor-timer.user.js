@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.15
+// @version      1.16
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -64,6 +64,9 @@
             if (panelEl) {
                 panelEl.querySelector("#dft_hdr span").textContent = L.title;
                 panelEl.querySelector("#dft_rst").textContent = L.reset;
+                panelEl.querySelector("#dft_rst").title = L.resetTitle;
+                panelEl.querySelector("#dft_wipe").textContent = L.resetAll;
+                panelEl.querySelector("#dft_wipe").title = L.resetAllTitle;
                 panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
             }
             render();
@@ -73,7 +76,11 @@
     const zhStrings = {
         title: "⏱ 地牢计时器",
         reset: "重置",
-        confirmReset: "确定要重置所有数据吗？",
+        resetAll: "清空",
+        resetTitle: "清除当前地牢当前难度的记录",
+        resetAllTitle: "清除所有地牢所有难度的记录",
+        confirmReset: "确定要清除 {target} 的记录吗？",
+        confirmResetAll: "确定要清除所有地牢所有难度的记录吗？",
         collapse: "收起",
         expand: "展开",
         wave: "波次",
@@ -95,7 +102,11 @@
     const enStrings = {
         title: "⏱ Dungeon Timer",
         reset: "Reset",
-        confirmReset: "Reset all data?",
+        resetAll: "Wipe",
+        resetTitle: "Clear records for the current dungeon and tier",
+        resetAllTitle: "Clear records for every dungeon and tier",
+        confirmReset: "Clear the records for {target}?",
+        confirmResetAll: "Clear the records for every dungeon and tier?",
         collapse: "Hide",
         expand: "Show",
         wave: "Wave",
@@ -128,6 +139,16 @@
         const d = DUNGEONS[hrid];
         if (!d) return hrid;
         return isZH ? d.zhName : d.enName;
+    }
+
+    // Dungeons have three difficulty tiers, shown in game as T0/T1/T2.
+    // endCharacterAction.difficultyTier carries that index directly.
+    function tierLabel(tier) {
+        return `T${tier ?? 0}`;
+    }
+
+    function runLabel(hrid, tier) {
+        return hrid ? `${dungeonName(hrid)} ${tierLabel(tier)}` : (isZH ? "地牢" : "Dungeon");
     }
 
     // Boss definitions per dungeon
@@ -172,6 +193,7 @@
 
     // ── State ──
     let currentDungeon = null;
+    let currentTier = 0;
     let currentWave = -1;
     let isDungeonActive = false;
     let waitingForCleanGroup = false;
@@ -202,49 +224,58 @@
     let cachedCharacterActions = null;
     let cachedPartyActionMap = null;
 
-    // ── Persistence (per-dungeon) ──
-    const STORAGE_KEY = "dft_history_v2";
+    // ── Persistence (per dungeon + difficulty tier) ──
+    // v3 splits every dungeon by difficulty tier; v2 lumped them together and
+    // its averages are not comparable, so it is not migrated.
+    const STORAGE_KEY = "dft_history_v3";
 
-    function storageKeyFor(dungeonHrid) {
-        return dungeonHrid || "_unknown";
+    function storageKeyFor(dungeonHrid, tier) {
+        return `${dungeonHrid || "_unknown"}#${tierLabel(tier)}`;
+    }
+
+    function readAll() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (_) { return {}; }
+    }
+
+    function writeAll(allData) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(allData)); } catch (_) {}
     }
 
     function saveHistory() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            const allData = raw ? JSON.parse(raw) : {};
-            const key = storageKeyFor(currentDungeon);
-            allData[key] = {
-                runHistory,
-                totalBossCounts,
-                totalBossPerGroup,
-                totalRuns,
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(allData));
-        } catch (_) {}
+        const allData = readAll();
+        allData[storageKeyFor(currentDungeon, currentTier)] = {
+            runHistory,
+            totalBossCounts,
+            totalBossPerGroup,
+            totalRuns,
+        };
+        writeAll(allData);
     }
 
     function loadHistory() {
-        loadHistoryFor(currentDungeon);
+        loadHistoryFor(currentDungeon, currentTier);
     }
 
-    function loadHistoryFor(dungeonHrid) {
+    function loadHistoryFor(dungeonHrid, tier) {
         runHistory = [];
         totalBossCounts = {};
         totalBossPerGroup = {};
         totalRuns = 0;
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return;
-            const allData = JSON.parse(raw);
-            const key = storageKeyFor(dungeonHrid);
-            const data = allData[key];
-            if (!data) return;
-            if (data.runHistory) runHistory = data.runHistory;
-            if (data.totalBossCounts) totalBossCounts = data.totalBossCounts;
-            if (data.totalBossPerGroup) totalBossPerGroup = data.totalBossPerGroup;
-            if (data.totalRuns) totalRuns = data.totalRuns;
-        } catch (_) {}
+        const data = readAll()[storageKeyFor(dungeonHrid, tier)];
+        if (!data) return;
+        if (data.runHistory) runHistory = data.runHistory;
+        if (data.totalBossCounts) totalBossCounts = data.totalBossCounts;
+        if (data.totalBossPerGroup) totalBossPerGroup = data.totalBossPerGroup;
+        if (data.totalRuns) totalRuns = data.totalRuns;
+    }
+
+    function dropHistoryFor(dungeonHrid, tier) {
+        const allData = readAll();
+        delete allData[storageKeyFor(dungeonHrid, tier)];
+        writeAll(allData);
     }
 
     // ── Helpers ──
@@ -368,7 +399,8 @@
             <div id="dft_hdr" style="display:flex;justify-content:space-between;align-items:center;cursor:move;margin-bottom:4px;">
                 <span style="font-weight:bold;font-size:0.95rem;color:#4fc3f7;">${L.title}</span>
                 <div>
-                    <button id="dft_rst" style="background:#e53935;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.reset}</button>
+                    <button id="dft_rst" title="${L.resetTitle}" style="background:#e53935;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.reset}</button>
+                    <button id="dft_wipe" title="${L.resetAllTitle}" style="background:#6d4c41;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.resetAll}</button>
                     <button id="dft_tog" style="background:#4fc3f7;color:white;border:none;padding:2px 7px;margin-left:5px;border-radius:8px;cursor:pointer;font-size:0.7rem;">${L.collapse}</button>
                 </div>
             </div>
@@ -384,8 +416,7 @@
             panelEl.querySelector("#dft_body").style.display = panelExpanded ? "" : "none";
             panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
         };
-        panelEl.querySelector("#dft_rst").onclick = () => {
-            if (!confirm(L.confirmReset)) return;
+        function clearLiveRun() {
             runHistory = [];
             currentRunGroups = {};
             currentRunBossCounts = {};
@@ -397,7 +428,17 @@
             isPartialRun = false;
             runCompleted = false;
             resetTiming();
-            // Clear all dungeon histories
+        }
+        panelEl.querySelector("#dft_rst").onclick = () => {
+            const target = runLabel(currentDungeon, currentTier);
+            if (!confirm(L.confirmReset.replace("{target}", target))) return;
+            clearLiveRun();
+            dropHistoryFor(currentDungeon, currentTier);
+            render();
+        };
+        panelEl.querySelector("#dft_wipe").onclick = () => {
+            if (!confirm(L.confirmResetAll)) return;
+            clearLiveRun();
             localStorage.removeItem(STORAGE_KEY);
             render();
         };
@@ -426,7 +467,7 @@
         panelEl.style.display = "";
 
         const maxWaves = currentDungeon && DUNGEONS[currentDungeon] ? DUNGEONS[currentDungeon].maxWaves : 65;
-        const dName = currentDungeon ? dungeonName(currentDungeon) : (isZH ? "地牢" : "Dungeon");
+        const dName = runLabel(currentDungeon, currentTier);
         const labels = allLabels(maxWaves);
         const histAvg = getHistoryAvg();
         const hasHistory = runHistory.length > 0;
@@ -450,7 +491,8 @@
                     ` <span style="color:#ffb74d;">${L.elapsed} ${fmt(elapsed)}</span>${partialTag}`;
             }
         } else {
-            statusEl.innerHTML = `<span style="color:#aaa;">${L.waitNext}</span>`;
+            const scope = currentDungeon ? `<span style="color:#4fc3f7;">${dName}</span> ` : "";
+            statusEl.innerHTML = `${scope}<span style="color:#aaa;">${L.waitNext}</span>`;
         }
 
         // ── Timer table ──
@@ -560,7 +602,7 @@
                 const total = Object.values(run.groups).reduce((s, g) => s + g.total, 0);
                 const t = new Date(run.endTime);
                 const ts = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}`;
-                const rName = run.dungeonHrid ? dungeonName(run.dungeonHrid) : run.dungeonName;
+                const rName = run.dungeonHrid ? runLabel(run.dungeonHrid, run.difficultyTier) : run.dungeonName;
                 h += `[${ts}] ${rName} <span style="color:white;">${fmt(total)}</span><br>`;
             }
             h += `</div>`;
@@ -574,17 +616,14 @@
     function detectDungeon(characterActions) {
         if (!characterActions) return null;
         for (const a of characterActions) {
-            if (a?.actionHrid && DUNGEONS[a.actionHrid]) return a.actionHrid;
+            if (a?.actionHrid && DUNGEONS[a.actionHrid]) return a;
         }
         return null;
     }
 
     function detectPartyDungeon(partyActionMap) {
         if (!partyActionMap) return null;
-        for (const a of Object.values(partyActionMap)) {
-            if (a?.actionHrid && DUNGEONS[a.actionHrid]) return a.actionHrid;
-        }
-        return null;
+        return detectDungeon(Object.values(partyActionMap));
     }
 
     function clearDungeon() {
@@ -598,8 +637,8 @@
 
     function tryDetectDungeon() {
         if (inLabyrinth) { clearDungeon(); return; }
-        const hrid = detectDungeon(cachedCharacterActions) || detectPartyDungeon(cachedPartyActionMap);
-        if (hrid) switchDungeon(hrid);
+        const action = detectDungeon(cachedCharacterActions) || detectPartyDungeon(cachedPartyActionMap);
+        if (action) switchDungeon(action.actionHrid, action.difficultyTier);
         // No dungeon in the cache means "unknown", not "left the dungeon".
         // Clearing is driven by explicit events (init snapshot, action_completed,
         // labyrinth messages, party battle ended).
@@ -704,7 +743,8 @@
         if (runCompleted && !isPartialRun && Object.keys(currentRunGroups).length > 0) {
             runHistory.push({
                 dungeonHrid: currentDungeon,
-                dungeonName: dungeonName(currentDungeon),
+                difficultyTier: currentTier,
+                dungeonName: runLabel(currentDungeon, currentTier),
                 maxWaves: DUNGEONS[currentDungeon]?.maxWaves || 65,
                 groups: JSON.parse(JSON.stringify(currentRunGroups)),
                 endTime: Date.now(),
@@ -740,12 +780,13 @@
         lastBoundaryClient = null;
     }
 
-    function switchDungeon(newDungeon) {
-        if (newDungeon === currentDungeon) return;
-        // Save current dungeon's history before switching
+    function switchDungeon(newDungeon, newTier) {
+        const tier = newTier ?? 0;
+        if (newDungeon === currentDungeon && tier === currentTier) return;
+        // Save the previous dungeon/tier bucket before switching
         if (currentDungeon) saveHistory();
         // new_battle wave 1 arrives before the server names the new action, so a
-        // fresh run is briefly attributed to the previous dungeon. Only the
+        // fresh run is briefly attributed to the previous dungeon/tier. Only the
         // "1-5" group can exist that early and its label does not depend on
         // maxWaves, so carry the run over instead of throwing it away.
         const keepRun = isDungeonActive && !isPartialRun && currentWave >= 1 && currentWave <= GROUP;
@@ -761,8 +802,9 @@
             resetTiming();
         }
         currentDungeon = newDungeon;
-        // Load the new dungeon's history
-        loadHistoryFor(newDungeon);
+        currentTier = tier;
+        // Load the bucket for the new dungeon + tier
+        loadHistoryFor(newDungeon, tier);
     }
 
     function handle(message) {
@@ -782,7 +824,7 @@
             inLabyrinth = false;
 
             const d = detectDungeon(cachedCharacterActions) || detectPartyDungeon(cachedPartyActionMap);
-            if (d) switchDungeon(d);
+            if (d) switchDungeon(d.actionHrid, d.difficultyTier);
             else clearDungeon();
             render();
         }
@@ -796,7 +838,7 @@
                 cachedCharacterActions = [action];
                 if (DUNGEONS[action.actionHrid]) {
                     inLabyrinth = false;
-                    switchDungeon(action.actionHrid);
+                    switchDungeon(action.actionHrid, action.difficultyTier);
                     onWaveBoundary(action);
                 } else {
                     // Switched to a non-dungeon action — the run is over.

@@ -28,12 +28,19 @@ After your first complete run, every subsequent run shows:
 
 Counts boss appearances on **non-fixed waves** (not multiples of 5). These random mini-boss spawns can slow your run.
 
+### 🎚 Per-Dungeon, Per-Tier Records
+
+Every dungeon keeps its own history, split by difficulty tier (T0/T1/T2). The
+tier is read from the action the server reports, so switching difficulty
+switches bucket automatically — T0 averages are never mixed with T2 averages.
+
 ### 🛡 Smart Data Handling
 
 - **Mid-dungeon join**: Waits for next clean 5-floor boundary before recording. Partial runs excluded from averages.
-- **Complete runs only**: Only runs starting from wave 1 are saved to history.
+- **Complete runs only**: Only runs whose every wave boundary was observed in order are saved to history.
 - **Persistent storage**: Complete run data saved to `localStorage` — survives page refresh.
 - **Draggable panel**: Move it anywhere. Collapse/expand with a button.
+- **Two reset scopes**: `Reset` clears only the current dungeon + tier, `Wipe` clears everything.
 
 ---
 
@@ -52,8 +59,8 @@ Counts boss appearances on **non-fixed waves** (not multiples of 5). These rando
 ## Reading the Panel
 
 ```
-⏱ Dungeon Timer                          [Reset] [Hide]
-Pirate Cove  Wave 65/65  Elapsed 19m 25s
+⏱ Dungeon Timer                   [Reset] [Wipe] [Hide]
+Pirate Cove T1  Wave 65/65  Elapsed 19m 25s
 
 Floors  Time     Avg      Diff    Extra  Avg
 1-5     47s      52s      -4s     0      0.0
@@ -177,12 +184,18 @@ MIT
 
 统计在非5的倍数层出现的Boss次数（随机小Boss刷新），帮助了解运气对通关时间的影响。
 
+### 🎚 按地牢 + 难度分别统计
+
+每个地牢各自保存历史，并按难度档位（T0/T1/T2）分开。难度取自服务器下发的动作数据，
+换难度会自动切换到对应的记录桶，T0 的均时不会和 T2 混在一起。
+
 ### 🛡 智能数据处理
 
 - **中途进入**：等待下一个完整5层组才开始计时，不完整轮不计入历史
-- **仅保存完整轮**：只有从第1波开始的完整轮才存入历史
+- **仅保存完整轮**：只有每个波次边界都按序观测到的轮次才存入历史
 - **持久化存储**：完整轮数据保存到 localStorage，刷新页面不丢失
 - **可拖动面板**：随意拖动位置，支持收起/展开
+- **两种清除范围**：`重置` 只清当前地牢当前难度，`清空` 清除全部记录
 
 ---
 
@@ -201,8 +214,8 @@ MIT
 ## 面板说明
 
 ```
-⏱ 地牢计时器                             [重置] [收起]
-海盗基地  层 65/65  已用 19m 25s
+⏱ 地牢计时器                      [重置] [清空] [收起]
+海盗基地 T1  层 65/65  已用 19m 25s
 
 层数    用时     均时     对比     额外  均
 1-5     47s      52s      -4s      0     0.0

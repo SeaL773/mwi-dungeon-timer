@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.13
+// @version      1.14
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -188,6 +188,12 @@
     let panelExpanded = true;
     let reachedFinalWave = false;
     let inLabyrinth = false;
+
+    // Latest action state mirrored from the websocket. The game never writes
+    // "init_character_data" to localStorage, so the only reliable sources are
+    // the init_character_data snapshot and every action_completed delta.
+    let cachedCharacterActions = null;
+    let cachedPartyActionMap = null;
 
     // ── Persistence (per-dungeon) ──
     const STORAGE_KEY = "dft_history_v2";
@@ -560,41 +566,29 @@
         return null;
     }
 
+    function detectPartyDungeon(partyActionMap) {
+        if (!partyActionMap) return null;
+        for (const a of Object.values(partyActionMap)) {
+            if (a?.actionHrid && DUNGEONS[a.actionHrid]) return a.actionHrid;
+        }
+        return null;
+    }
+
+    function clearDungeon() {
+        if (!currentDungeon) return;
+        if (isDungeonActive) finishRun();
+        currentDungeon = null;
+        isDungeonActive = false;
+        render();
+    }
+
     function tryDetectDungeon() {
-        try {
-            const d = JSON.parse(localStorage.getItem("init_character_data") || "{}");
-
-            // Check if labyrinth is active — if so, we're NOT in a dungeon
-            if (d.labyrinth?.isActive) {
-                inLabyrinth = true;
-                if (currentDungeon) {
-                    if (isDungeonActive) finishRun();
-                    currentDungeon = null;
-                    isDungeonActive = false;
-                    render();
-                }
-                return;
-            }
-            inLabyrinth = false;
-
-            let hrid = detectDungeon(d.characterActions);
-            if (!hrid && d.partyInfo?.partyActionMap) {
-                for (const a of Object.values(d.partyInfo.partyActionMap)) {
-                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { hrid = a.actionHrid; break; }
-                }
-            }
-            if (hrid) {
-                switchDungeon(hrid);
-            } else {
-                // Not in a dungeon (labyrinth, regular combat, etc.) — clear state
-                if (currentDungeon) {
-                    if (isDungeonActive) finishRun();
-                    currentDungeon = null;
-                    isDungeonActive = false;
-                    render();
-                }
-            }
-        } catch (e) {}
+        if (inLabyrinth) { clearDungeon(); return; }
+        const hrid = detectDungeon(cachedCharacterActions) || detectPartyDungeon(cachedPartyActionMap);
+        if (hrid) switchDungeon(hrid);
+        // No dungeon in the cache means "unknown", not "left the dungeon".
+        // Clearing is driven by explicit events (init snapshot, action_completed,
+        // labyrinth messages, party battle ended).
     }
 
     function onNewBattle(msg) {
@@ -725,44 +719,51 @@
 
     function handle(message) {
         if (message.type === "init_character_data") {
+            cachedCharacterActions = message.characterActions || null;
+            cachedPartyActionMap = message.partyInfo?.partyActionMap || null;
+
             // Track labyrinth state
             if (message.labyrinth?.isActive) {
                 inLabyrinth = true;
-                if (currentDungeon) {
-                    if (isDungeonActive) finishRun();
-                    currentDungeon = null;
-                    isDungeonActive = false;
-                }
+                cachedCharacterActions = null;
+                cachedPartyActionMap = null;
+                clearDungeon();
                 render();
                 return;
             }
             inLabyrinth = false;
 
-            let d = detectDungeon(message.characterActions);
-            if (!d && message.partyInfo?.partyActionMap) {
-                for (const a of Object.values(message.partyInfo.partyActionMap)) {
-                    if (a?.actionHrid && DUNGEONS[a.actionHrid]) { d = a.actionHrid; break; }
+            const d = detectDungeon(cachedCharacterActions) || detectPartyDungeon(cachedPartyActionMap);
+            if (d) switchDungeon(d);
+            else clearDungeon();
+            render();
+        }
+
+        // The action the character is running right now. This is the only
+        // detection path that works when the page was loaded outside a dungeon,
+        // and it arrives roughly once per wave.
+        if (message.type === "action_completed") {
+            const action = message.endCharacterAction;
+            if (action?.actionHrid) {
+                cachedCharacterActions = [action];
+                if (DUNGEONS[action.actionHrid]) {
+                    inLabyrinth = false;
+                    switchDungeon(action.actionHrid);
+                    render();
+                } else {
+                    // Switched to a non-dungeon action — the run is over.
+                    cachedPartyActionMap = null;
+                    clearDungeon();
                 }
             }
-            if (d) {
-                switchDungeon(d);
-            } else if (currentDungeon) {
-                if (isDungeonActive) finishRun();
-                currentDungeon = null;
-                isDungeonActive = false;
-            }
-            render();
         }
 
         // Track labyrinth enter/exit from dedicated messages
         if (message.type === "labyrinth_update" || message.type === "labyrinth_enter") {
             inLabyrinth = true;
-            if (currentDungeon) {
-                if (isDungeonActive) finishRun();
-                currentDungeon = null;
-                isDungeonActive = false;
-                render();
-            }
+            cachedCharacterActions = null;
+            cachedPartyActionMap = null;
+            clearDungeon();
         }
         if (message.type === "labyrinth_exit") {
             inLabyrinth = false;
@@ -783,17 +784,17 @@
     }
 
     // ── WebSocket wrap ──
+    // `class ... extends` keeps the prototype chain and the static readyState
+    // constants intact, so `ws instanceof WebSocket` still holds for game code.
     const OrigWS = unsafeWindow.WebSocket;
-    const WrapWS = function (...args) {
-        const ws = new OrigWS(...args);
-        ws.addEventListener("message", e => {
-            try { handle(JSON.parse(e.data)); } catch (_) {}
-        });
-        return ws;
-    };
-    WrapWS.CONNECTING = OrigWS.CONNECTING;
-    WrapWS.OPEN = OrigWS.OPEN;
-    WrapWS.CLOSED = OrigWS.CLOSED;
+    class WrapWS extends OrigWS {
+        constructor(...args) {
+            super(...args);
+            this.addEventListener("message", e => {
+                try { handle(JSON.parse(e.data)); } catch (_) {}
+            });
+        }
+    }
     unsafeWindow.WebSocket = WrapWS;
 
     setInterval(() => {

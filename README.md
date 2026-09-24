@@ -125,7 +125,8 @@ The script wraps the game's WebSocket to intercept:
 | Message                 | Purpose                                              |
 |-------------------------|------------------------------------------------------|
 | `new_battle`            | Wave number + monster list (timing & boss detection) |
-| `init_character_data`   | Detect which dungeon is active                       |
+| `init_character_data`   | Detect which dungeon is active on page load          |
+| `action_completed`      | Track the current action, so the dungeon is detected even when the page was loaded outside it |
 | `chat_message_received` | Detect dungeon end via party system messages         |
 
 No data is sent externally. Everything stays in your browser.
@@ -257,7 +258,8 @@ MIT
 | 消息类型                | 用途                                  |
 |-------------------------|---------------------------------------|
 | `new_battle`            | 获取波次号和怪物列表（计时 + Boss检测） |
-| `init_character_data`   | 检测当前地牢                          |
+| `init_character_data`   | 页面加载时检测当前地牢                 |
+| `action_completed`      | 跟踪当前动作，页面在地牢外加载也能检测到地牢 |
 | `chat_message_received` | 检测地牢结束（队伍系统消息）            |
 
 所有数据仅保存在浏览器本地，不会发送到外部。

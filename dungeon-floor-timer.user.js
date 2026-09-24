@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.16
+// @version      1.17
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -98,6 +98,8 @@
         history: "历史",
         runs: "轮",
         avgTime: "平均",
+        verifying: "校验中",
+        rejected: "校验丢弃",
     };
     const enStrings = {
         title: "⏱ Dungeon Timer",
@@ -124,6 +126,8 @@
         history: "History",
         runs: "runs",
         avgTime: "Avg",
+        verifying: "verifying",
+        rejected: "rejected",
     };
     let L = enStrings;  // default, updated by updateLang()
 
@@ -216,6 +220,20 @@
     let lastBoundaryWave = null;   // wave that ended at lastBoundaryTime (0 = run finished)
     let lastBoundaryTime = null;   // server ms
     let lastBoundaryClient = null; // Date.now() when that boundary was received
+    let runStartIsExact = false;   // runStartTime came from a server boundary, not Date.now()
+
+    // Independent cross-check. The party system chat "key counts" line is sent
+    // once per dungeon run, a fixed delay after the previous run's last wave
+    // boundary, so the interval between two of them equals the boundary-to-
+    // boundary span we measured. A run that disagrees is thrown away instead of
+    // skewing the averages.
+    const KEY_COUNT_TOLERANCE_MS = 3000;
+    let lastKeyCountTime = null;   // server ms of the most recent key-count line
+    let lastKeyCountClient = null; // Date.now() when it arrived
+    let runStartKeyTime = null;    // key-count line that opened the current run
+    let runBoundaryStart = null;   // previous run's last boundary, for the cross-check
+    let pendingRun = null;         // finished run held until the next key-count line
+    let rejectedRuns = 0;          // runs dropped by the cross-check this session
     let inLabyrinth = false;
 
     // Latest action state mirrored from the websocket. The game never writes
@@ -427,6 +445,9 @@
             isDungeonActive = false;
             isPartialRun = false;
             runCompleted = false;
+            pendingRun = null;
+            rejectedRuns = 0;
+            runStartKeyTime = null;
             resetTiming();
         }
         panelEl.querySelector("#dft_rst").onclick = () => {
@@ -592,12 +613,15 @@
 
         // ── History ──
         const histEl = panelEl.querySelector("#dft_hist");
+        const checkTags =
+            (pendingRun ? ` <span style="color:#ffb74d;">${L.verifying}</span>` : "") +
+            (rejectedRuns > 0 ? ` <span style="color:#ef5350;">${L.rejected} ${rejectedRuns}</span>` : "");
         if (runHistory.length > 0) {
             const recent = runHistory.slice(-5).reverse();
             let h = `<div style="font-size:0.7rem;color:#aaa;border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;">`;
             const allTotals = runHistory.map(r => Object.values(r.groups).reduce((s, g) => s + g.total, 0));
             const avgTotal = allTotals.reduce((s, t) => s + t, 0) / allTotals.length;
-            h += `<span style="color:#4fc3f7;">${L.history} (${runHistory.length} ${L.runs})</span> <span style="color:#81c784;">${L.avgTime}: ${fmt(avgTotal)}</span><br>`;
+            h += `<span style="color:#4fc3f7;">${L.history} (${runHistory.length} ${L.runs})</span> <span style="color:#81c784;">${L.avgTime}: ${fmt(avgTotal)}</span>${checkTags}<br>`;
             for (const run of recent) {
                 const total = Object.values(run.groups).reduce((s, g) => s + g.total, 0);
                 const t = new Date(run.endTime);
@@ -607,6 +631,8 @@
             }
             h += `</div>`;
             histEl.innerHTML = h;
+        } else if (checkTags) {
+            histEl.innerHTML = `<div style="font-size:0.7rem;color:#aaa;border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;">${checkTags}</div>`;
         } else {
             histEl.innerHTML = "";
         }
@@ -629,6 +655,7 @@
     function clearDungeon() {
         if (!currentDungeon) return;
         if (isDungeonActive) finishRun();
+        settlePendingRun();
         currentDungeon = null;
         isDungeonActive = false;
         resetTiming();
@@ -665,14 +692,18 @@
             waitingForCleanGroup = false;
             isPartialRun = false;
             runCompleted = false;
-            // A looping dungeon gives us an exact server boundary for the start
-            // of wave 1 (the action_completed with wave 0). A freshly started
-            // action has none, so fall back to the arrival of this message.
-            if (lastBoundaryWave !== 0 || lastBoundaryTime === null) {
-                lastBoundaryWave = 0;
-                lastBoundaryTime = Date.now();
-                lastBoundaryClient = lastBoundaryTime;
-            }
+            // The previous run's last boundary is the only trustworthy anchor:
+            // both ends of the run are then server timestamps. The key-count
+            // line is kept as independent evidence, never used as a clock, so a
+            // bad line can only reject a run, never distort one.
+            runBoundaryStart = (lastBoundaryWave === 0 && lastBoundaryTime !== null) ? lastBoundaryTime : null;
+            runStartKeyTime = (lastKeyCountClient !== null && Date.now() - lastKeyCountClient < 60000)
+                ? lastKeyCountTime
+                : null;
+            runStartIsExact = runBoundaryStart !== null;
+            lastBoundaryWave = 0;
+            lastBoundaryTime = runBoundaryStart ?? Date.now();
+            lastBoundaryClient = Date.now();
             runStartTime = lastBoundaryTime;
         } else if (!isDungeonActive) {
             // Joined mid-run (page reload, late script start): never savable.
@@ -683,6 +714,9 @@
             isPartialRun = true;
             runCompleted = false;
             runStartTime = null;
+            runStartIsExact = false;
+            runStartKeyTime = null;
+            runBoundaryStart = null;
             waitingForCleanGroup = !isGroupStart(wave);
             if (!waitingForCleanGroup) runStartTime = lastBoundaryTime;
         }
@@ -739,27 +773,71 @@
         render();
     }
 
+    function commitRun(run) {
+        runHistory.push(run.entry);
+        for (const [hrid, count] of Object.entries(run.bossCounts)) {
+            if (!totalBossCounts[hrid]) totalBossCounts[hrid] = 0;
+            totalBossCounts[hrid] += count;
+        }
+        for (const [label, count] of Object.entries(run.bossPerGroup)) {
+            if (!totalBossPerGroup[label]) totalBossPerGroup[label] = 0;
+            totalBossPerGroup[label] += count;
+        }
+        totalRuns++;
+        saveHistory();
+    }
+
+    // A pending run waits for the next key-count line to confirm its duration.
+    // If the dungeon ends first the run is still kept: its span is server
+    // timestamped at both ends, only the redundant check is missing.
+    function settlePendingRun() {
+        if (!pendingRun) return;
+        // boundarySpan is server-timestamped at both ends, so an unconfirmed
+        // pending run is still exact; only the redundant check is missing.
+        commitRun(pendingRun);
+        pendingRun = null;
+        render();
+    }
+
+    function onKeyCount(serverTime) {
+        if (pendingRun) {
+            // Both spans run boundary-to-boundary: the key line trails the last
+            // wave of a run by a fixed server delay, so the delay cancels out.
+            const observed = serverTime - pendingRun.startKeyTime;
+            if (Math.abs(observed - pendingRun.boundarySpan) <= KEY_COUNT_TOLERANCE_MS) commitRun(pendingRun);
+            else rejectedRuns++;
+            pendingRun = null;
+        }
+        lastKeyCountTime = serverTime;
+        lastKeyCountClient = Date.now();
+        render();
+    }
+
     function finishRun() {
         if (runCompleted && !isPartialRun && Object.keys(currentRunGroups).length > 0) {
-            runHistory.push({
-                dungeonHrid: currentDungeon,
-                difficultyTier: currentTier,
-                dungeonName: runLabel(currentDungeon, currentTier),
-                maxWaves: DUNGEONS[currentDungeon]?.maxWaves || 65,
-                groups: JSON.parse(JSON.stringify(currentRunGroups)),
-                endTime: Date.now(),
-            });
-
-            for (const [hrid, count] of Object.entries(currentRunBossCounts)) {
-                if (!totalBossCounts[hrid]) totalBossCounts[hrid] = 0;
-                totalBossCounts[hrid] += count;
-            }
-            for (const [label, count] of Object.entries(currentRunBossPerGroup)) {
-                if (!totalBossPerGroup[label]) totalBossPerGroup[label] = 0;
-                totalBossPerGroup[label] += count;
-            }
-            totalRuns++;
-            saveHistory();
+            settlePendingRun();
+            const run = {
+                entry: {
+                    dungeonHrid: currentDungeon,
+                    difficultyTier: currentTier,
+                    dungeonName: runLabel(currentDungeon, currentTier),
+                    maxWaves: DUNGEONS[currentDungeon]?.maxWaves || 65,
+                    groups: JSON.parse(JSON.stringify(currentRunGroups)),
+                    endTime: Date.now(),
+                },
+                bossCounts: { ...currentRunBossCounts },
+                bossPerGroup: { ...currentRunBossPerGroup },
+                // span from the previous run's last boundary to this one's,
+                // which is exactly what two key-count lines are apart
+                boundarySpan: runBoundaryStart !== null && lastBoundaryTime !== null
+                    ? lastBoundaryTime - runBoundaryStart
+                    : null,
+                startKeyTime: runStartKeyTime,
+                startIsExact: runStartIsExact,
+            };
+            if (run.startKeyTime !== null && run.boundarySpan !== null) pendingRun = run;
+            else if (run.startIsExact) commitRun(run);
+            else rejectedRuns++;
         }
 
         currentRunGroups = {};
@@ -769,6 +847,9 @@
         isPartialRun = false;
         runCompleted = false;
         runStartTime = null;
+        runStartIsExact = false;
+        runStartKeyTime = null;
+        runBoundaryStart = null;
         currentWave = -1;
         render();
     }
@@ -783,8 +864,8 @@
     function switchDungeon(newDungeon, newTier) {
         const tier = newTier ?? 0;
         if (newDungeon === currentDungeon && tier === currentTier) return;
-        // Save the previous dungeon/tier bucket before switching
-        if (currentDungeon) saveHistory();
+        // Settle anything still pending while it still belongs to this bucket
+        if (currentDungeon) { settlePendingRun(); saveHistory(); }
         // new_battle wave 1 arrives before the server names the new action, so a
         // fresh run is briefly attributed to the previous dungeon/tier. Only the
         // "1-5" group can exist that early and its label does not depend on
@@ -866,9 +947,14 @@
             message.message?.chan === "/chat_channel_types/party" &&
             message.message?.isSystemMessage) {
             const m = message.message.m;
+            if (m === "systemChatMessage.partyKeyCount") {
+                const t = Date.parse(message.message.t);
+                if (Number.isFinite(t)) onKeyCount(t);
+            }
             if (m === "systemChatMessage.partyBattleEnded" ||
                 m === "systemChatMessage.partyBattleStopped") {
                 if (isDungeonActive) finishRun();
+                settlePendingRun();
             }
             if (m === "systemChatMessage.partyBattleStarted") tryDetectDungeon();
         }

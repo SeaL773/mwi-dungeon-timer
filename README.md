@@ -134,7 +134,7 @@ The script wraps the game's WebSocket to intercept:
 | `new_battle`            | Wave number + monster list (wave tracking & boss detection) |
 | `init_character_data`   | Detect which dungeon is active on page load          |
 | `action_completed`      | Current action + `updatedAt`, the authoritative wave-boundary timestamp |
-| `chat_message_received` | Detect dungeon end via party system messages         |
+| `chat_message_received` | Party system lines: dungeon end, plus the key-count line used to cross-check run length |
 
 ### Timing accuracy
 
@@ -147,6 +147,22 @@ A run only reaches the history when every wave boundary from 1 to the last one
 was observed in order. Runs joined halfway (page reload) or with missing waves
 (reconnect) are shown live, tagged `(partial)`, and discarded instead of
 polluting the averages.
+
+### Key-count cross-check
+
+The party chat prints a `Key counts: [...]` line once per dungeon run, at a
+fixed server delay after the previous run's last wave. Two consecutive lines are
+therefore exactly one run apart, which is an independent measurement of the span
+the timer just measured itself.
+
+Every finished run is held until the next key-count line arrives. If the two
+disagree by more than **3 seconds**, the run is dropped and the panel shows
+`rejected N`. The key-count line is only ever used as evidence, never as a
+clock, so a late or missing line can reject a run but can never distort one.
+
+The first run after freshly starting a dungeon has no preceding wave boundary to
+anchor on, so its start is a local clock read and it is dropped as unverifiable.
+Every run from the second one on is measured entirely on server timestamps.
 
 No data is sent externally. Everything stays in your browser.
 
@@ -296,5 +312,18 @@ MIT
 只有从第 1 波到最后一波的每个波次边界都被按序观测到，这一轮才会写入历史。中途接入
 （页面刷新）或缺波（重连）的轮次只做实时显示，标记 `(不完整轮)` 并直接丢弃，不会污染
 均时。
+
+### 钥匙数交叉校验
+
+队伍频道每跑一轮地牢会打印一条 `Key counts: [...]`，发出时间是上一轮最后一波结束后的
+固定服务器延迟。因此相邻两条之间的间隔正好等于一轮的长度，相当于对计时器自己测出的
+那段时间做一次独立测量。
+
+每轮跑完后先挂起，等下一条钥匙数消息到达再做比对。两者相差超过 **3 秒**就丢弃这一轮，
+面板显示 `校验丢弃 N`。钥匙数消息只当证据用，绝不当时钟用，所以它迟到或丢失只会导致
+丢弃，不会把某一轮的时间改错。
+
+刚开始跑地牢的第一轮没有前一轮的波次边界可以对齐，起点只能取本地时钟，因此无法校验，
+会被直接丢弃。从第二轮起全程使用服务器时间戳。
 
 所有数据仅保存在浏览器本地，不会发送到外部。

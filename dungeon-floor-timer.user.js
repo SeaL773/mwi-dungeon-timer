@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.14
+// @version      1.15
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -173,8 +173,6 @@
     // ── State ──
     let currentDungeon = null;
     let currentWave = -1;
-    let waveStartTime = null;
-    let dungeonStartTime = null;
     let isDungeonActive = false;
     let waitingForCleanGroup = false;
     let isPartialRun = false;
@@ -186,7 +184,16 @@
     let totalRuns = 0;
     let runHistory = [];
     let panelExpanded = true;
-    let reachedFinalWave = false;
+    let runCompleted = false;
+
+    // Wave timing runs on the server clock (action_completed.endCharacterAction
+    // .updatedAt), never on Date.now(). A frozen tab, a throttled background
+    // tab or a websocket reconnect delivers messages late and in bursts, which
+    // would inflate one wave and crush the next ones if we timed them locally.
+    let runStartTime = null;       // server ms, start of wave 1
+    let lastBoundaryWave = null;   // wave that ended at lastBoundaryTime (0 = run finished)
+    let lastBoundaryTime = null;   // server ms
+    let lastBoundaryClient = null; // Date.now() when that boundary was received
     let inLabyrinth = false;
 
     // Latest action state mirrored from the websocket. The game never writes
@@ -387,7 +394,9 @@
             totalBossPerGroup = {};
             totalRuns = 0;
             isDungeonActive = false;
-            reachedFinalWave = false;
+            isPartialRun = false;
+            runCompleted = false;
+            resetTiming();
             // Clear all dungeon histories
             localStorage.removeItem(STORAGE_KEY);
             render();
@@ -425,7 +434,11 @@
         // ── Status ──
         const statusEl = panelEl.querySelector("#dft_status");
         if (isDungeonActive && currentDungeon) {
-            const elapsed = dungeonStartTime ? Date.now() - dungeonStartTime : 0;
+            // measured part comes from the server clock, only the in-flight
+            // wave ticks locally
+            const elapsed = (runStartTime !== null && lastBoundaryTime !== null)
+                ? (lastBoundaryTime - runStartTime) + Math.max(0, Date.now() - lastBoundaryClient)
+                : 0;
             if (waitingForCleanGroup) {
                 statusEl.innerHTML = `<span style="color:#4fc3f7;">${dName}</span>` +
                     ` <span style="color:#81c784;">${L.wave} ${currentWave}/${maxWaves}</span>` +
@@ -471,7 +484,7 @@
                 const isFuture = !g && !isActive;
 
                 let groupTime = g ? g.total : 0;
-                if (isActive && waveStartTime) groupTime += Date.now() - waveStartTime;
+                if (isActive && lastBoundaryClient !== null) groupTime += Math.max(0, Date.now() - lastBoundaryClient);
 
                 const rowStyle = isActive ? "color:#ffb74d;" : isFuture ? "color:#555;" : "color:white;";
 
@@ -483,7 +496,7 @@
                     const ha = histAvg[label];
                     html += `<td style="padding:2px 4px;color:#aaa;">${ha ? fmt(ha.avg) : "-"}</td>`;
                     if (!isFuture && ha && g) {
-                        if (!isActive || !waveStartTime) {
+                        if (!isActive || lastBoundaryClient === null) {
                             const diff = groupTime - ha.avg;
                             if (Math.abs(diff) < 1000) html += `<td style="padding:2px 4px;color:#888;">-</td>`;
                             else if (diff > 0) html += `<td style="padding:2px 4px;color:#ef5350;">+${fmtDiff(diff)}</td>`;
@@ -579,6 +592,7 @@
         if (isDungeonActive) finishRun();
         currentDungeon = null;
         isDungeonActive = false;
+        resetTiming();
         render();
     }
 
@@ -602,72 +616,92 @@
         if (!currentDungeon || !DUNGEONS[currentDungeon]) return;
 
         const maxWaves = DUNGEONS[currentDungeon].maxWaves;
-        const now = Date.now();
 
         if (wave === 1) {
-            if (isDungeonActive && Object.keys(currentRunGroups).length > 0) finishRun();
+            if (isDungeonActive) finishRun();
             currentRunGroups = {};
             currentRunBossCounts = {};
             currentRunBossPerGroup = {};
-            dungeonStartTime = now;
-            currentWave = -1;
-            waveStartTime = null;
             isDungeonActive = true;
             waitingForCleanGroup = false;
             isPartialRun = false;
-            reachedFinalWave = false;
+            runCompleted = false;
+            // A looping dungeon gives us an exact server boundary for the start
+            // of wave 1 (the action_completed with wave 0). A freshly started
+            // action has none, so fall back to the arrival of this message.
+            if (lastBoundaryWave !== 0 || lastBoundaryTime === null) {
+                lastBoundaryWave = 0;
+                lastBoundaryTime = Date.now();
+                lastBoundaryClient = lastBoundaryTime;
+            }
+            runStartTime = lastBoundaryTime;
         } else if (!isDungeonActive) {
+            // Joined mid-run (page reload, late script start): never savable.
             isDungeonActive = true;
-            dungeonStartTime = null;
             currentRunGroups = {};
             currentRunBossCounts = {};
             currentRunBossPerGroup = {};
-            currentWave = -1;
-            waveStartTime = null;
             isPartialRun = true;
-            reachedFinalWave = false;
+            runCompleted = false;
+            runStartTime = null;
             waitingForCleanGroup = !isGroupStart(wave);
-            if (!waitingForCleanGroup) dungeonStartTime = now;
+            if (!waitingForCleanGroup) runStartTime = lastBoundaryTime;
         }
-
-        // Mark when we reach the final wave (boss wave)
-        if (wave === maxWaves) reachedFinalWave = true;
 
         detectBosses(msg);
 
         if (waitingForCleanGroup && isGroupStart(wave)) {
             waitingForCleanGroup = false;
-            dungeonStartTime = now;
-            currentWave = wave;
-            waveStartTime = now;
-            render();
-            return;
-        }
-
-        if (!waitingForCleanGroup && waveStartTime !== null && currentWave >= 0) {
-            const elapsed = now - waveStartTime;
-            const label = groupLabel(currentWave, maxWaves);
-            if (!currentRunGroups[label]) currentRunGroups[label] = { total: 0, count: 0 };
-            currentRunGroups[label].total += elapsed;
-            currentRunGroups[label].count += 1;
+            runStartTime = lastBoundaryTime;
         }
 
         currentWave = wave;
-        waveStartTime = now;
+        render();
+    }
+
+    // Authoritative wave boundary: endCharacterAction.updatedAt is the server
+    // timestamp at which `wave` finished (wave 0 means the whole run finished).
+    function onWaveBoundary(action) {
+        if (!currentDungeon || !DUNGEONS[currentDungeon]) return;
+        const boundary = Date.parse(action.updatedAt);
+        if (!Number.isFinite(boundary)) return;
+
+        const maxWaves = DUNGEONS[currentDungeon].maxWaves;
+        const raw = action.wave;
+        const endedWave = raw === 0 ? maxWaves : raw;
+        const continuous = lastBoundaryWave !== null && lastBoundaryWave === endedWave - 1;
+
+        if (isDungeonActive && !waitingForCleanGroup) {
+            if (continuous && lastBoundaryTime !== null) {
+                const label = groupLabel(endedWave, maxWaves);
+                if (!currentRunGroups[label]) currentRunGroups[label] = { total: 0, count: 0 };
+                currentRunGroups[label].total += boundary - lastBoundaryTime;
+                currentRunGroups[label].count += 1;
+            } else if (lastBoundaryWave !== null) {
+                // Waves went missing (reconnect, stalled tab, dropped message).
+                // The measured groups no longer cover the run, so do not let it
+                // reach the history.
+                isPartialRun = true;
+            }
+        }
+
+        lastBoundaryWave = raw;
+        lastBoundaryTime = boundary;
+        lastBoundaryClient = Date.now();
+
+        if (raw === 0) {
+            if (isDungeonActive) {
+                runCompleted = continuous;
+                finishRun();
+            }
+            // the next run starts at this very boundary
+            lastBoundaryWave = 0;
+        }
         render();
     }
 
     function finishRun() {
-        if (waveStartTime !== null && currentWave >= 0 && currentDungeon && DUNGEONS[currentDungeon]) {
-            const elapsed = Date.now() - waveStartTime;
-            const maxWaves = DUNGEONS[currentDungeon].maxWaves;
-            const label = groupLabel(currentWave, maxWaves);
-            if (!currentRunGroups[label]) currentRunGroups[label] = { total: 0, count: 0 };
-            currentRunGroups[label].total += elapsed;
-            currentRunGroups[label].count += 1;
-        }
-
-        if (Object.keys(currentRunGroups).length > 0 && !isPartialRun && reachedFinalWave) {
+        if (runCompleted && !isPartialRun && Object.keys(currentRunGroups).length > 0) {
             runHistory.push({
                 dungeonHrid: currentDungeon,
                 dungeonName: dungeonName(currentDungeon),
@@ -692,25 +726,39 @@
         currentRunBossCounts = {};
         currentRunBossPerGroup = {};
         isDungeonActive = false;
-        waveStartTime = null;
+        isPartialRun = false;
+        runCompleted = false;
+        runStartTime = null;
         currentWave = -1;
-        reachedFinalWave = false;
         render();
+    }
+
+    function resetTiming() {
+        runStartTime = null;
+        lastBoundaryWave = null;
+        lastBoundaryTime = null;
+        lastBoundaryClient = null;
     }
 
     function switchDungeon(newDungeon) {
         if (newDungeon === currentDungeon) return;
         // Save current dungeon's history before switching
         if (currentDungeon) saveHistory();
-        // Reset current run state
-        if (isDungeonActive) {
+        // new_battle wave 1 arrives before the server names the new action, so a
+        // fresh run is briefly attributed to the previous dungeon. Only the
+        // "1-5" group can exist that early and its label does not depend on
+        // maxWaves, so carry the run over instead of throwing it away.
+        const keepRun = isDungeonActive && !isPartialRun && currentWave >= 1 && currentWave <= GROUP;
+        if (!keepRun) {
             currentRunGroups = {};
             currentRunBossCounts = {};
             currentRunBossPerGroup = {};
             isDungeonActive = false;
-            waveStartTime = null;
+            isPartialRun = false;
+            runCompleted = false;
+            waitingForCleanGroup = false;
             currentWave = -1;
-            reachedFinalWave = false;
+            resetTiming();
         }
         currentDungeon = newDungeon;
         // Load the new dungeon's history
@@ -749,10 +797,11 @@
                 if (DUNGEONS[action.actionHrid]) {
                     inLabyrinth = false;
                     switchDungeon(action.actionHrid);
-                    render();
+                    onWaveBoundary(action);
                 } else {
                     // Switched to a non-dungeon action — the run is over.
                     cachedPartyActionMap = null;
+                    resetTiming();
                     clearDungeon();
                 }
             }

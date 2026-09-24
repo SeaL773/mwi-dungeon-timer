@@ -124,10 +124,22 @@ The script wraps the game's WebSocket to intercept:
 
 | Message                 | Purpose                                              |
 |-------------------------|------------------------------------------------------|
-| `new_battle`            | Wave number + monster list (timing & boss detection) |
+| `new_battle`            | Wave number + monster list (wave tracking & boss detection) |
 | `init_character_data`   | Detect which dungeon is active on page load          |
-| `action_completed`      | Track the current action, so the dungeon is detected even when the page was loaded outside it |
+| `action_completed`      | Current action + `updatedAt`, the authoritative wave-boundary timestamp |
 | `chat_message_received` | Detect dungeon end via party system messages         |
+
+### Timing accuracy
+
+Wave times come from the server timestamp in `action_completed`, never from the
+browser clock. A frozen tab, a throttled background tab or a websocket
+reconnect delivers messages late and in bursts; timing locally would inflate
+one group and crush the next ones.
+
+A run only reaches the history when every wave boundary from 1 to the last one
+was observed in order. Runs joined halfway (page reload) or with missing waves
+(reconnect) are shown live, tagged `(partial)`, and discarded instead of
+polluting the averages.
 
 No data is sent externally. Everything stays in your browser.
 
@@ -257,9 +269,19 @@ MIT
 
 | 消息类型                | 用途                                  |
 |-------------------------|---------------------------------------|
-| `new_battle`            | 获取波次号和怪物列表（计时 + Boss检测） |
+| `new_battle`            | 获取波次号和怪物列表（波次跟踪 + Boss检测） |
 | `init_character_data`   | 页面加载时检测当前地牢                 |
-| `action_completed`      | 跟踪当前动作，页面在地牢外加载也能检测到地牢 |
+| `action_completed`      | 当前动作 + `updatedAt`，即权威的波次边界时间戳 |
 | `chat_message_received` | 检测地牢结束（队伍系统消息）            |
+
+### 计时精度
+
+波次用时取自 `action_completed` 里的服务器时间戳，不使用浏览器本地时钟。页面卡顿、
+后台标签页被节流、WebSocket 重连都会让消息延迟并成批到达，用本地时钟计时会把某一组
+严重拉长、后面几组严重压缩。
+
+只有从第 1 波到最后一波的每个波次边界都被按序观测到，这一轮才会写入历史。中途接入
+（页面刷新）或缺波（重连）的轮次只做实时显示，标记 `(不完整轮)` 并直接丢弃，不会污染
+均时。
 
 所有数据仅保存在浏览器本地，不会发送到外部。

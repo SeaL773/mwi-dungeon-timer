@@ -53,7 +53,7 @@ path is live.
 - **Mid-dungeon join**: Waits for next clean 5-floor boundary before recording. Partial runs excluded from averages.
 - **Complete runs only**: Only runs whose every wave boundary was observed in order are saved to history.
 - **Persistent storage**: Complete run data saved to `localStorage` — survives page refresh.
-- **Draggable panel**: Move it anywhere. Collapse/expand with a button.
+- **Draggable panel**: Move it anywhere. Collapse/expand with a button. It cannot be dragged off-screen, and a window resize pulls it back into view.
 - **Two reset scopes**: `Reset` clears only the current dungeon + tier, `Wipe` clears everything.
 
 ---
@@ -238,7 +238,7 @@ MIT
 - **中途进入**：等待下一个完整5层组才开始计时，不完整轮不计入历史
 - **仅保存完整轮**：只有每个波次边界都按序观测到的轮次才存入历史
 - **持久化存储**：完整轮数据保存到 localStorage，刷新页面不丢失
-- **可拖动面板**：随意拖动位置，支持收起/展开
+- **可拖动面板**：随意拖动位置，支持收起/展开；不会被拖出屏幕，窗口缩小时会自动拉回可视区域
 - **两种清除范围**：`重置` 只清当前地牢当前难度，`清空` 清除全部记录
 
 ---

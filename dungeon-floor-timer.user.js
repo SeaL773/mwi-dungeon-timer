@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.21
+// @version      1.22
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -403,6 +403,41 @@
     let panelEl = null;
     let panelEventsController = null;
 
+    // The panel is position:fixed, so clamping is against the viewport. A margin
+    // is kept so the drag handle always stays grabbable.
+    const PANEL_EDGE_MARGIN = 8;
+
+    function movePanel(left, top) {
+        if (!panelEl) return;
+        // The panel is shrink-to-fit, so the right viewport edge squeezes it and
+        // measuring in place would feed the clamp a width that depends on the
+        // very position being computed. Probe at the left margin for the size it
+        // actually wants, then place it.
+        panelEl.style.right = "auto";
+        panelEl.style.left = PANEL_EDGE_MARGIN + "px";
+        const { width, height } = panelEl.getBoundingClientRect();
+        const maxLeft = Math.max(PANEL_EDGE_MARGIN, win.innerWidth - width - PANEL_EDGE_MARGIN);
+        const maxTop = Math.max(PANEL_EDGE_MARGIN, win.innerHeight - height - PANEL_EDGE_MARGIN);
+        panelEl.style.left = Math.min(Math.max(left, PANEL_EDGE_MARGIN), maxLeft) + "px";
+        panelEl.style.top = Math.min(Math.max(top, PANEL_EDGE_MARGIN), maxTop) + "px";
+    }
+
+    // Only rewrites the position when the panel actually hangs off an edge, so
+    // the default right-anchored placement is left alone until it has to move.
+    function keepPanelOnScreen(recheck) {
+        if (!panelEl || panelEl.style.display === "none") return;
+        const rect = panelEl.getBoundingClientRect();
+        if (!rect.width && !rect.height) return;
+        const maxLeft = Math.max(PANEL_EDGE_MARGIN, win.innerWidth - rect.width - PANEL_EDGE_MARGIN);
+        const maxTop = Math.max(PANEL_EDGE_MARGIN, win.innerHeight - rect.height - PANEL_EDGE_MARGIN);
+        if (rect.left >= PANEL_EDGE_MARGIN && rect.left <= maxLeft &&
+            rect.top >= PANEL_EDGE_MARGIN && rect.top <= maxTop) return;
+        movePanel(rect.left, rect.top);
+        // a narrower viewport rewraps the contents, which changes the size the
+        // clamp was just computed from; settle it on the next frame
+        if (recheck !== false) requestAnimationFrame(() => keepPanelOnScreen(false));
+    }
+
     function ensurePanel() {
         // React can replace the document body during route transitions. Do not
         // keep using a panel node that is no longer attached to the document.
@@ -444,6 +479,7 @@
             panelExpanded = !panelExpanded;
             panelEl.querySelector("#dft_body").style.display = panelExpanded ? "" : "none";
             panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
+            keepPanelOnScreen();
         };
         function clearLiveRun() {
             runHistory = [];
@@ -475,13 +511,19 @@
             render();
         };
 
-        // drag
+        // drag, constrained to the viewport: a panel dragged past an edge is
+        // unreachable afterwards, and there is no way to bring it back.
         let dx, dy, dragging = false;
         const hdr = panelEl.querySelector("#dft_hdr");
         hdr.onmousedown = e => { dragging = true; dx = e.clientX - panelEl.getBoundingClientRect().left; dy = e.clientY - panelEl.getBoundingClientRect().top; e.preventDefault(); };
         const eventOptions = { signal: panelEventsController.signal };
-        document.addEventListener("mousemove", e => { if (!dragging) return; panelEl.style.left = (e.clientX - dx) + "px"; panelEl.style.top = (e.clientY - dy) + "px"; panelEl.style.right = "auto"; }, eventOptions);
+        document.addEventListener("mousemove", e => {
+            if (!dragging) return;
+            movePanel(e.clientX - dx, e.clientY - dy);
+        }, eventOptions);
         document.addEventListener("mouseup", () => { dragging = false; }, eventOptions);
+        // collapsing, expanding and window resizes all change the overlap
+        window.addEventListener("resize", keepPanelOnScreen, eventOptions);
     }
 
     function shouldShow() {
@@ -942,7 +984,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.21",
+            version: "1.22",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,
@@ -1211,6 +1253,7 @@
         updateLang();
         render();
         annotateChat();
+        keepPanelOnScreen();
         // starved: either the socket is idle or our getter was displaced
         if (!document.hidden && Date.now() - lastMessageAt > 30000) installMessageHook();
     }, 2000);

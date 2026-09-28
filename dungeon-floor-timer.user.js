@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.19
+// @version      1.20
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -23,6 +23,8 @@
 
 (function () {
     "use strict";
+
+    const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
     // ── i18n ──
     const LANG_CACHE_KEY = "dft_lang";
@@ -804,31 +806,50 @@
 
     // ── Chat annotation ──
     // The key-count line is what players actually read to judge a run, so the
-    // run time is written straight into it. The line is matched by its
+    // run time is written straight into it. The row is located by the
     // keyCountString payload rather than by the localised "Key counts:" prefix,
     // so this works on both the English and Chinese clients.
     const CHAT_NOTE_CLASS = "dft-run-time";
     const CHAT_NOTE_LIMIT = 30;
+    const CHAT_ROW_SELECTOR = '[class*="ChatMessage_chatMessage"]';
     let chatNotes = [];        // {keyString, dur, avg}
     let keySeries = [];        // run durations since the last "battle started"
 
+    // The game may render the player names as separate nodes, so compare with
+    // whitespace stripped instead of requiring the payload byte for byte.
+    function squash(s) {
+        return s.replace(/\s+/g, "");
+    }
+
     function queueChatNote(keyString, dur, avg) {
         if (!keyString) return;
-        chatNotes.push({ keyString, dur, avg });
+        const first = keyString.match(/\[[^\[\]]*-\s*\d+\]/);
+        chatNotes.push({
+            keyString,
+            full: squash(keyString),
+            // a single "[name - count]" entry is already unique per line, and it
+            // survives the game splitting the list across several elements
+            token: first ? squash(first[0]) : null,
+            dur,
+            avg,
+        });
         if (chatNotes.length > CHAT_NOTE_LIMIT) chatNotes.shift();
-        setTimeout(annotateChat, 100);
+        annotateChat();
     }
 
     // Re-applied on every pass: the game rebuilds the chat rows whenever the
     // party tab is re-rendered, which drops the annotations with them.
     function annotateChat() {
         if (!chatNotes.length || !document.body) return;
-        const rows = document.querySelectorAll('[class*="ChatMessage_chatMessage"]');
+        const rows = document.querySelectorAll(CHAT_ROW_SELECTOR);
         if (!rows.length) return;
+        const texts = new Map();
         for (const note of chatNotes) {
             for (const row of rows) {
                 if (row.querySelector("." + CHAT_NOTE_CLASS)) continue;
-                if (!row.textContent.includes(note.keyString)) continue;
+                if (!texts.has(row)) texts.set(row, squash(row.textContent));
+                const text = texts.get(row);
+                if (!text.includes(note.full) && !(note.token && text.includes(note.token))) continue;
                 const span = document.createElement("span");
                 span.className = CHAT_NOTE_CLASS;
                 span.innerHTML = `<span style="color:#ffa726;"> ${fmt(note.dur)}</span>` +
@@ -836,10 +857,43 @@
                         ? `<span style="color:#d2b48c;"> ${L.avgTime}:</span><span style="color:#ffa726;"> ${fmt(note.avg)}</span>`
                         : "");
                 row.appendChild(span);
+                texts.set(row, text + squash(span.textContent));
                 break;
             }
         }
     }
+
+    // React owns the chat rows: it recreates them on tab switches and drops any
+    // child we appended. Polling every 2s would leave the annotation missing for
+    // up to two seconds each time, so re-apply on DOM changes as well.
+    let annotateQueued = false;
+    function scheduleAnnotate() {
+        if (annotateQueued) return;
+        annotateQueued = true;
+        setTimeout(() => { annotateQueued = false; try { annotateChat(); } catch (_) {} }, 150);
+    }
+
+    (function watchChat() {
+        if (!document.body) { setTimeout(watchChat, 300); return; }
+        new MutationObserver(scheduleAnnotate)
+            .observe(document.body, { childList: true, subtree: true });
+    })();
+
+    // Console helper: dungeonTimerDebug() reports whether the chat rows were
+    // found and whether any pending note matched one of them.
+    win.dungeonTimerDebug = () => {
+        const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)];
+        return {
+            rowsFound: rows.length,
+            pendingNotes: chatNotes.length,
+            annotated: document.querySelectorAll("." + CHAT_NOTE_CLASS).length,
+            matches: chatNotes.map(n => ({
+                token: n.token,
+                matchedRows: rows.filter(r => squash(r.textContent).includes(n.token || n.full)).length,
+            })),
+            lastRows: rows.slice(-4).map(r => r.textContent.slice(0, 120)),
+        };
+    };
 
     function onKeyCount(serverTime, keyString) {
         if (pendingRun) {
@@ -1028,7 +1082,6 @@
     // order, because it runs when the game itself reads event.data on an already
     // open socket. Other MWI scripts hook the same getter; chaining through the
     // previous getter and de-duplicating per event keeps them all working.
-    const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
     const GAME_SOCKET = /milkywayidle(cn)?\.com\/ws/;
     const handledEvents = new WeakSet();
     const dataDescriptor = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");

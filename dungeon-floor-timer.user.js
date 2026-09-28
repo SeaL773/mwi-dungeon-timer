@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.20
+// @version      1.21
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -25,6 +25,12 @@
     "use strict";
 
     const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+
+    // Diagnostics surfaced by dungeonTimerDebug()
+    let hookInstalls = 0;
+    let lastMessageAt = 0;
+    const msgSeen = Object.create(null);
+    const lastSystemChat = [];
 
     // ── i18n ──
     const LANG_CACHE_KEY = "dft_lang";
@@ -837,29 +843,79 @@
         annotateChat();
     }
 
+    function noteSpan(dur, avg) {
+        const span = document.createElement("span");
+        span.className = CHAT_NOTE_CLASS;
+        span.innerHTML = `<span style="color:#ffa726;"> ${fmt(dur)}</span>` +
+            (avg !== null
+                ? `<span style="color:#d2b48c;"> ${L.avgTime}:</span><span style="color:#ffa726;"> ${fmt(avg)}</span>`
+                : "");
+        return span;
+    }
+
     // Re-applied on every pass: the game rebuilds the chat rows whenever the
     // party tab is re-rendered, which drops the annotations with them.
     function annotateChat() {
-        if (!chatNotes.length || !document.body) return;
-        const rows = document.querySelectorAll(CHAT_ROW_SELECTOR);
+        if (!document.body) return;
+        const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)];
         if (!rows.length) return;
         const texts = new Map();
+        const textOf = (row) => {
+            if (!texts.has(row)) texts.set(row, squash(row.textContent));
+            return texts.get(row);
+        };
         for (const note of chatNotes) {
             for (const row of rows) {
                 if (row.querySelector("." + CHAT_NOTE_CLASS)) continue;
-                if (!texts.has(row)) texts.set(row, squash(row.textContent));
-                const text = texts.get(row);
+                const text = textOf(row);
                 if (!text.includes(note.full) && !(note.token && text.includes(note.token))) continue;
-                const span = document.createElement("span");
-                span.className = CHAT_NOTE_CLASS;
-                span.innerHTML = `<span style="color:#ffa726;"> ${fmt(note.dur)}</span>` +
-                    (note.avg !== null
-                        ? `<span style="color:#d2b48c;"> ${L.avgTime}:</span><span style="color:#ffa726;"> ${fmt(note.avg)}</span>`
-                        : "");
+                const span = noteSpan(note.dur, note.avg);
                 row.appendChild(span);
                 texts.set(row, text + squash(span.textContent));
                 break;
             }
+        }
+        annotateFromTimestamps(rows);
+    }
+
+    // Fallback for rows the websocket never produced a note for: rows that
+    // predate this page load, and any session where another userscript knocked
+    // our message hook out of the MessageEvent getter chain. The rendered
+    // timestamp is second-resolution, so this is less precise than the
+    // websocket path and only fills rows it left empty.
+    const KEY_ROW_RE = /\[[^\[\]]{1,32}\s*-\s*\d+\]/;
+    const SERIES_BREAK_MS = 3600000;
+
+    // Locale-independent: take the clock digits and, if present, whichever
+    // half-day marker the client rendered (AM/PM or 上午/下午).
+    function chatRowClock(row) {
+        const stamp = row.querySelector('[class*="ChatMessage_timestamp"]');
+        const text = (stamp || row).textContent;
+        const m = text.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+        if (!m) return null;
+        let h = +m[1];
+        if (/PM|下午|晚上|中午/i.test(text) && h !== 12) h += 12;
+        if (/AM|上午|凌晨|早上/i.test(text) && h === 12) h = 0;
+        return ((h * 60 + +m[2]) * 60 + +m[3]) * 1000;
+    }
+
+    function annotateFromTimestamps(rows) {
+        const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
+        if (keyRows.length < 2) return;
+        const clocks = keyRows.map(chatRowClock);
+        // chat spans midnight: keep the sequence non-decreasing
+        for (let i = 1; i < clocks.length; i++) {
+            if (clocks[i] === null || clocks[i - 1] === null) continue;
+            while (clocks[i] < clocks[i - 1]) clocks[i] += 86400000;
+        }
+        let series = [];
+        for (let i = 1; i < keyRows.length; i++) {
+            const dur = clocks[i] === null || clocks[i - 1] === null ? null : clocks[i] - clocks[i - 1];
+            if (dur === null || dur <= 0 || dur > SERIES_BREAK_MS) { series = []; continue; }
+            series.push(dur);
+            if (keyRows[i].querySelector("." + CHAT_NOTE_CLASS)) continue;
+            const avg = series.length > 1 ? series.reduce((s, d) => s + d, 0) / series.length : null;
+            keyRows[i].appendChild(noteSpan(dur, avg));
         }
     }
 
@@ -879,18 +935,26 @@
             .observe(document.body, { childList: true, subtree: true });
     })();
 
-    // Console helper: dungeonTimerDebug() reports whether the chat rows were
-    // found and whether any pending note matched one of them.
+    // Console helper: reports whether messages are reaching us at all, which
+    // separates a dead message hook from a failed DOM lookup.
     win.dungeonTimerDebug = () => {
         const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)];
+        const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
+        const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            rowsFound: rows.length,
+            version: "1.21",
+            hookIsOurs: !!(top && top.get && top.get.__dft),
+            hookInstalls,
+            messagesSeen: msgSeen,
+            secondsSinceLastMessage: lastMessageAt ? Math.round((Date.now() - lastMessageAt) / 1000) : null,
+            systemChat: lastSystemChat.slice(),
+            dungeon: currentDungeon, tier: currentTier, wave: currentWave, active: isDungeonActive,
+            keySeries: keySeries.slice(),
             pendingNotes: chatNotes.length,
+            rowsFound: rows.length,
+            keyRowsFound: keyRows.length,
             annotated: document.querySelectorAll("." + CHAT_NOTE_CLASS).length,
-            matches: chatNotes.map(n => ({
-                token: n.token,
-                matchedRows: rows.filter(r => squash(r.textContent).includes(n.token || n.full)).length,
-            })),
+            clocks: keyRows.slice(-4).map(r => chatRowClock(r)),
             lastRows: rows.slice(-4).map(r => r.textContent.slice(0, 120)),
         };
     };
@@ -1081,25 +1145,65 @@
     // Hooking the MessageEvent data getter instead works whatever the injection
     // order, because it runs when the game itself reads event.data on an already
     // open socket. Other MWI scripts hook the same getter; chaining through the
-    // previous getter and de-duplicating per event keeps them all working.
+    // previous getter and de-duplicating per event keeps them all working - as
+    // long as they all chain. A script that captured the descriptor early and
+    // installs it late drops everyone in between, so the hook is reinstalled if
+    // messages stop arriving.
     const GAME_SOCKET = /milkywayidle(cn)?\.com\/ws/;
     const handledEvents = new WeakSet();
-    const dataDescriptor = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
-    const readData = dataDescriptor.get;
-    dataDescriptor.get = function () {
-        const data = readData.call(this);
-        if (!handledEvents.has(this)) {
-            handledEvents.add(this);
-            try {
-                const socket = this.currentTarget;
-                if (typeof data === "string" && typeof socket?.url === "string" && GAME_SOCKET.test(socket.url)) {
-                    handle(JSON.parse(data));
-                }
-            } catch (_) {}
+
+    function ingest(data, socket) {
+        if (typeof data !== "string") return;
+        if (typeof socket?.url !== "string" || !GAME_SOCKET.test(socket.url)) return;
+        let message;
+        try { message = JSON.parse(data); } catch (_) { return; }
+        lastMessageAt = Date.now();
+        msgSeen[message.type] = (msgSeen[message.type] || 0) + 1;
+        if (message.type === "chat_message_received" && message.message?.isSystemMessage) {
+            lastSystemChat.push(`${message.message.chan} ${message.message.m}`);
+            if (lastSystemChat.length > 8) lastSystemChat.shift();
         }
-        return data;
-    };
-    Object.defineProperty(win.MessageEvent.prototype, "data", dataDescriptor);
+        try { handle(message); } catch (_) {}
+    }
+
+    function installMessageHook() {
+        const descriptor = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
+        if (!descriptor?.get || descriptor.get.__dft) return;
+        const readData = descriptor.get;
+        const hooked = function () {
+            const data = readData.call(this);
+            if (!handledEvents.has(this)) {
+                handledEvents.add(this);
+                ingest(data, this.currentTarget);
+            }
+            return data;
+        };
+        hooked.__dft = true;
+        descriptor.get = hooked;
+        Object.defineProperty(win.MessageEvent.prototype, "data", descriptor);
+        hookInstalls++;
+    }
+
+    installMessageHook();
+
+    // Second path, for sockets opened from now on: covers a reconnect after our
+    // getter was displaced. Reading event.data first lets the getter hook claim
+    // the event, so a message is never handled twice.
+    const OrigWS = win.WebSocket;
+    if (typeof OrigWS === "function") {
+        class TimerWS extends OrigWS {
+            constructor(...args) {
+                super(...args);
+                this.addEventListener("message", e => {
+                    const data = e.data;
+                    if (handledEvents.has(e)) return;
+                    handledEvents.add(e);
+                    ingest(data, this);
+                });
+            }
+        }
+        win.WebSocket = TimerWS;
+    }
 
     setInterval(() => {
         tryDetectDungeon();
@@ -1107,6 +1211,8 @@
         updateLang();
         render();
         annotateChat();
+        // starved: either the socket is idle or our getter was displaced
+        if (!document.hidden && Date.now() - lastMessageAt > 30000) installMessageHook();
     }, 2000);
     (function wait() {
         if (document.body) {

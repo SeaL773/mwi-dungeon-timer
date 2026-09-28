@@ -42,6 +42,12 @@ one run apart, so this is measured on server timestamps and needs no parsing of
 the chat text. The line is matched by its key-count payload rather than the
 localised prefix, so it works on the English and Chinese clients alike.
 
+Rows the websocket never reported — messages older than the page load, or a
+session where another userscript displaced the message hook — are filled in
+from the timestamps the client already rendered, so the annotation does not
+depend on a single path. `dungeonTimerDebug()` in the console reports which
+path is live.
+
 ### 🛡 Smart Data Handling
 
 - **Mid-dungeon join**: Waits for next clean 5-floor boundary before recording. Partial runs excluded from averages.
@@ -222,6 +228,10 @@ MIT
 每条 `钥匙数量` 消息后面会直接附上这一轮的用时，以及本次连打的滚动平均。相邻两条钥匙数
 消息正好相隔一轮，因此用时取自服务器时间戳，不需要解析聊天文本。匹配用的是消息里的钥匙
 数据本身，不是本地化的前缀，所以中英文客户端都能生效。
+
+如果某条消息不是通过 WebSocket 收到的（页面加载之前就存在的历史消息，或者挂钩被别的脚本
+挤掉的情况），则退回用客户端已经渲染好的时间戳计算，不依赖单一路径。控制台执行
+`dungeonTimerDebug()` 可以看到当前走的是哪条路径。
 
 ### 🛡 智能数据处理
 

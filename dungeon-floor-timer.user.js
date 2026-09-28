@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.24
+// @version      1.25
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -901,6 +901,14 @@
         if (!document.body) return;
         const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)];
         if (!rows.length) return;
+        // The chat itself is the authority: it holds the whole series, including
+        // the runs that happened before this page load. Deriving the average
+        // from anywhere else would restart it at every refresh and print two
+        // averages computed over different spans on adjacent lines.
+        annotateFromTimestamps(rows);
+        // Only rows whose timestamp could not be read fall through to the
+        // websocket measurements, e.g. when the client renders no timestamps.
+        if (!chatNotes.length) return;
         const texts = new Map();
         const textOf = (row) => {
             if (!texts.has(row)) texts.set(row, squash(row.textContent));
@@ -917,7 +925,6 @@
                 break;
             }
         }
-        annotateFromTimestamps(rows);
     }
 
     // Fallback for rows the websocket never produced a note for: rows that
@@ -1025,7 +1032,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.24",
+            version: "1.25",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,

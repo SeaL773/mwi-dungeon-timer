@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.23
+// @version      1.24
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -941,23 +941,64 @@
         return ((h * 60 + +m[2]) * 60 + +m[3]) * 1000;
     }
 
+    // A run always consumes at least one key, so two key-count lines carrying
+    // the same numbers cannot have a run between them: the party stopped and
+    // restarted. This is the locale-free equivalent of the "Battle started"
+    // line, which cannot be matched by text on a Chinese client.
+    function keyCountDigits(text) {
+        const entries = text.match(/-\s*\d+\s*\]/g);
+        return entries ? entries.map(e => e.replace(/\D/g, "")).join(",") : "";
+    }
+
+    function isSystemRow(row) {
+        return typeof row.className === "string" && row.className.includes("ChatMessage_systemMessage");
+    }
+
     function annotateFromTimestamps(rows) {
-        const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
-        if (keyRows.length < 2) return;
-        const clocks = keyRows.map(chatRowClock);
-        // chat spans midnight: keep the sequence non-decreasing
-        for (let i = 1; i < clocks.length; i++) {
-            if (clocks[i] === null || clocks[i - 1] === null) continue;
-            while (clocks[i] < clocks[i - 1]) clocks[i] += 86400000;
+        // Rows from every chat tab are in the document at once. Group them by
+        // their history container so a system line in general chat cannot look
+        // like an interruption of the party's run.
+        const panels = new Map();
+        for (const row of rows) {
+            const panel = row.closest('[class*="ChatHistory_chatHistory"]') || row.parentElement;
+            if (!panel) continue;
+            if (!panels.has(panel)) panels.set(panel, []);
+            panels.get(panel).push(row);
         }
+        for (const panelRows of panels.values()) annotatePanel(panelRows);
+    }
+
+    function annotatePanel(rows) {
+        let prev = null;    // {clock, digits} of the previous key-count line
         let series = [];
-        for (let i = 1; i < keyRows.length; i++) {
-            const dur = clocks[i] === null || clocks[i - 1] === null ? null : clocks[i] - clocks[i - 1];
-            if (dur === null || dur <= 0 || dur > SERIES_BREAK_MS) { series = []; continue; }
-            series.push(dur);
-            if (keyRows[i].querySelector("." + CHAT_NOTE_CLASS)) continue;
-            const avg = series.length > 1 ? series.reduce((s, d) => s + d, 0) / series.length : null;
-            keyRows[i].appendChild(noteSpan(dur, avg));
+        for (const row of rows) {
+            if (!KEY_ROW_RE.test(row.textContent)) {
+                // battle started / ended / a member going not-ready: whatever it
+                // says, a system line between two key lines means the run chain
+                // was broken
+                if (isSystemRow(row)) { prev = null; series = []; }
+                continue;
+            }
+            const clock = chatRowClock(row);
+            const digits = keyCountDigits(row.textContent);
+            if (prev && clock !== null && prev.clock !== null) {
+                let dur = clock - prev.clock;
+                if (dur < 0) dur += 86400000;   // the chat crossed midnight
+                if (digits !== "" && digits === prev.digits) {
+                    series = [];                // no key consumed: not a run
+                } else if (dur > 0 && dur <= SERIES_BREAK_MS) {
+                    series.push(dur);
+                    if (!row.querySelector("." + CHAT_NOTE_CLASS)) {
+                        const avg = series.length > 1
+                            ? series.reduce((s, d) => s + d, 0) / series.length
+                            : null;
+                        row.appendChild(noteSpan(dur, avg));
+                    }
+                } else {
+                    series = [];
+                }
+            }
+            prev = { clock, digits };
         }
     }
 
@@ -984,7 +1025,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.23",
+            version: "1.24",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,
@@ -1005,13 +1046,19 @@
     // be measured. Only ever feeds the chat annotation: run validation stays on
     // boundaries observed by this page load.
     const CARRY_KEY = "dft_last_keycount";
-    let carriedKeyCountTime = (() => {
-        const t = Number(localStorage.getItem(CARRY_KEY));
-        return Number.isFinite(t) && t > 0 ? t : null;
-    })();
+    let lastKeyDigits = "";
+    let carriedKeyCountTime = null;
+    let carriedKeyDigits = "";
+    try {
+        const saved = JSON.parse(localStorage.getItem(CARRY_KEY) || "null");
+        if (saved && Number.isFinite(saved.t) && saved.t > 0) {
+            carriedKeyCountTime = saved.t;
+            carriedKeyDigits = typeof saved.d === "string" ? saved.d : "";
+        }
+    } catch (_) {}
 
-    function saveCarriedKeyCount(serverTime) {
-        try { localStorage.setItem(CARRY_KEY, String(serverTime)); } catch (_) {}
+    function saveCarriedKeyCount(serverTime, digits) {
+        try { localStorage.setItem(CARRY_KEY, JSON.stringify({ t: serverTime, d: digits })); } catch (_) {}
     }
 
     function onKeyCount(serverTime, keyString) {
@@ -1023,7 +1070,15 @@
             else rejectedRuns++;
             pendingRun = null;
         }
-        if (lastKeyCountTime !== null) {
+        // Same key numbers as the previous line: the party stopped and started
+        // again without consuming a key, so the gap is not a run. Caught here as
+        // well as from partyBattleStarted, because a dropped message must not be
+        // able to invent a run.
+        const digits = keyCountDigits(keyString);
+        const restarted = digits !== "" && digits === lastKeyDigits;
+        if (restarted) {
+            keySeries = [];
+        } else if (lastKeyCountTime !== null) {
             const dur = serverTime - lastKeyCountTime;
             keySeries.push(dur);
             const avg = keySeries.length > 1
@@ -1034,13 +1089,14 @@
             // First line of this page load. The chat panel is empty after a
             // refresh, so without this the next two runs would go unannotated.
             const dur = serverTime - carriedKeyCountTime;
-            if (dur > 0 && dur <= SERIES_BREAK_MS) {
+            if (dur > 0 && dur <= SERIES_BREAK_MS && digits !== carriedKeyDigits) {
                 keySeries.push(dur);
                 queueChatNote(keyString, dur, null);
             }
         }
+        lastKeyDigits = digits;
         carriedKeyCountTime = null;
-        saveCarriedKeyCount(serverTime);
+        saveCarriedKeyCount(serverTime, digits);
         lastKeyCountTime = serverTime;
         lastKeyCountClient = Date.now();
         render();
@@ -1190,6 +1246,11 @@
                 m === "systemChatMessage.partyBattleStopped") {
                 if (isDungeonActive) finishRun();
                 settlePendingRun();
+                // the next key-count line opens a new series, not a run
+                keySeries = [];
+                lastKeyCountTime = null;
+                lastKeyCountClient = null;
+                carriedKeyCountTime = null;
             }
             if (m === "systemChatMessage.partyBattleStarted") {
                 // a new series of runs: averages restart here

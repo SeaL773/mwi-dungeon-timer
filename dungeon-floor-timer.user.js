@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.26
+// @version      1.27
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -887,6 +887,11 @@
         row.appendChild(span);
     }
 
+    function clearNote(row) {
+        const span = row.querySelector("." + CHAT_NOTE_CLASS);
+        if (span) span.remove();
+    }
+
     // Re-applied on every pass: the game rebuilds the chat rows whenever the
     // party tab is re-rendered, which drops the annotations with them.
     function annotateChat() {
@@ -915,13 +920,25 @@
         return ((h * 60 + +m[2]) * 60 + +m[3]) * 1000;
     }
 
-    // A run always consumes at least one key, so two key-count lines carrying
-    // the same numbers cannot have a run between them: the party stopped and
-    // restarted. This is the locale-free equivalent of the "Battle started"
-    // line, which cannot be matched by text on a Chinese client.
-    function keyCountDigits(text) {
-        const entries = text.match(/-\s*\d+\s*\]/g);
-        return entries ? entries.map(e => e.replace(/\D/g, "")).join(",") : "";
+    // A run consumes a key from everyone who ran it, so between two key-count
+    // lines at least one member's count must have gone down. Nobody dropping
+    // means the party stopped and started again, whatever happened to the
+    // numbers in between: a member who buys keys during the break sends their
+    // count up, which an equality test would have read as a fresh run.
+    // This is the locale-free equivalent of the "Battle started" line, which
+    // cannot be matched by text on a Chinese client.
+    function keyCounts(text) {
+        const counts = new Map();
+        for (const m of text.matchAll(/\[([^\[\]]{1,32}?)\s*-\s*(\d+)\]/g)) counts.set(m[1], +m[2]);
+        return counts;
+    }
+
+    function anyCountDropped(counts, prevCounts) {
+        for (const [name, value] of counts) {
+            const before = prevCounts.get(name);
+            if (before !== undefined && value < before) return true;
+        }
+        return false;
     }
 
     function isSystemRow(row) {
@@ -943,7 +960,7 @@
     }
 
     function annotatePanel(rows) {
-        let prev = null;    // {clock, digits} of the previous key-count line
+        let prev = null;    // {clock, counts} of the previous key-count line
         let series = [];
         for (const row of rows) {
             if (!KEY_ROW_RE.test(row.textContent)) {
@@ -954,23 +971,27 @@
                 continue;
             }
             const clock = chatRowClock(row);
-            const digits = keyCountDigits(row.textContent);
+            const counts = keyCounts(row.textContent);
+            let annotated = false;
             if (prev && clock !== null && prev.clock !== null) {
                 let dur = clock - prev.clock;
                 if (dur < 0) dur += 86400000;   // the chat crossed midnight
-                if (digits !== "" && digits === prev.digits) {
-                    series = [];                // no key consumed: not a run
-                } else if (dur > 0 && dur <= SERIES_BREAK_MS) {
+                if (dur > 0 && dur <= SERIES_BREAK_MS && anyCountDropped(counts, prev.counts)) {
                     series.push(dur);
                     const avg = series.length > 1
                         ? series.reduce((s, d) => s + d, 0) / series.length
                         : null;
                     setNote(row, dur, avg);
+                    annotated = true;
                 } else {
                     series = [];
                 }
             }
-            prev = { clock, digits };
+            // A row this pass decided against must lose any note it is carrying,
+            // otherwise a value left by an earlier version, or by a pass made
+            // while the chain was still incomplete, stays on screen forever.
+            if (!annotated) clearNote(row);
+            prev = { clock, counts };
         }
     }
 
@@ -997,7 +1018,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.26",
+            version: "1.27",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,

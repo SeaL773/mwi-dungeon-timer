@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.25
+// @version      1.26
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -854,45 +854,37 @@
 
     // ── Chat annotation ──
     // The key-count line is what players actually read to judge a run, so the
-    // run time is written straight into it. The row is located by the
-    // keyCountString payload rather than by the localised "Key counts:" prefix,
-    // so this works on both the English and Chinese clients.
+    // run time is written straight into it.
+    //
+    // The chat rows are the single source of truth. Measuring some rows from
+    // websocket timestamps and others from the rendered ones put two series in
+    // play, and whichever reached a row first won: after a refresh the live
+    // series held one sample while the row above it averaged eight, so adjacent
+    // lines disagreed. One series, derived from what is on screen.
     const CHAT_NOTE_CLASS = "dft-run-time";
-    const CHAT_NOTE_LIMIT = 30;
     const CHAT_ROW_SELECTOR = '[class*="ChatMessage_chatMessage"]';
-    let chatNotes = [];        // {keyString, dur, avg}
-    let keySeries = [];        // run durations since the last "battle started"
 
-    // The game may render the player names as separate nodes, so compare with
-    // whitespace stripped instead of requiring the payload byte for byte.
-    function squash(s) {
-        return s.replace(/\s+/g, "");
-    }
-
-    function queueChatNote(keyString, dur, avg) {
-        if (!keyString) return;
-        const first = keyString.match(/\[[^\[\]]*-\s*\d+\]/);
-        chatNotes.push({
-            keyString,
-            full: squash(keyString),
-            // a single "[name - count]" entry is already unique per line, and it
-            // survives the game splitting the list across several elements
-            token: first ? squash(first[0]) : null,
-            dur,
-            avg,
-        });
-        if (chatNotes.length > CHAT_NOTE_LIMIT) chatNotes.shift();
-        annotateChat();
-    }
-
-    function noteSpan(dur, avg) {
-        const span = document.createElement("span");
-        span.className = CHAT_NOTE_CLASS;
-        span.innerHTML = `<span style="color:#ffa726;"> ${fmt(dur)}</span>` +
+    function noteHTML(dur, avg) {
+        return `<span style="color:#ffa726;"> ${fmt(dur)}</span>` +
             (avg !== null
                 ? `<span style="color:#d2b48c;"> ${L.avgTime}:</span><span style="color:#ffa726;"> ${fmt(avg)}</span>`
                 : "");
-        return span;
+    }
+
+    // Rewrites rather than skips an existing note: a row inserted before its
+    // timestamp child would otherwise keep whatever was computed while the
+    // chain was still incomplete.
+    function setNote(row, dur, avg) {
+        const html = noteHTML(dur, avg);
+        let span = row.querySelector("." + CHAT_NOTE_CLASS);
+        if (span) {
+            if (span.innerHTML !== html) span.innerHTML = html;
+            return;
+        }
+        span = document.createElement("span");
+        span.className = CHAT_NOTE_CLASS;
+        span.innerHTML = html;
+        row.appendChild(span);
     }
 
     // Re-applied on every pass: the game rebuilds the chat rows whenever the
@@ -900,38 +892,13 @@
     function annotateChat() {
         if (!document.body) return;
         const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)];
-        if (!rows.length) return;
-        // The chat itself is the authority: it holds the whole series, including
-        // the runs that happened before this page load. Deriving the average
-        // from anywhere else would restart it at every refresh and print two
-        // averages computed over different spans on adjacent lines.
-        annotateFromTimestamps(rows);
-        // Only rows whose timestamp could not be read fall through to the
-        // websocket measurements, e.g. when the client renders no timestamps.
-        if (!chatNotes.length) return;
-        const texts = new Map();
-        const textOf = (row) => {
-            if (!texts.has(row)) texts.set(row, squash(row.textContent));
-            return texts.get(row);
-        };
-        for (const note of chatNotes) {
-            for (const row of rows) {
-                if (row.querySelector("." + CHAT_NOTE_CLASS)) continue;
-                const text = textOf(row);
-                if (!text.includes(note.full) && !(note.token && text.includes(note.token))) continue;
-                const span = noteSpan(note.dur, note.avg);
-                row.appendChild(span);
-                texts.set(row, text + squash(span.textContent));
-                break;
-            }
-        }
+        if (rows.length) annotateFromTimestamps(rows);
     }
 
-    // Fallback for rows the websocket never produced a note for: rows that
-    // predate this page load, and any session where another userscript knocked
-    // our message hook out of the MessageEvent getter chain. The rendered
-    // timestamp is second-resolution, so this is less precise than the
-    // websocket path and only fills rows it left empty.
+    // Durations come from the timestamps the client already rendered, matching
+    // what a player reads off the screen. Only the clock digits and the
+    // half-day marker are parsed, never the message text, so the English and
+    // Chinese clients behave identically.
     const KEY_ROW_RE = /\[[^\[\]]{1,32}\s*-\s*\d+\]/;
     const SERIES_BREAK_MS = 3600000;
 
@@ -995,12 +962,10 @@
                     series = [];                // no key consumed: not a run
                 } else if (dur > 0 && dur <= SERIES_BREAK_MS) {
                     series.push(dur);
-                    if (!row.querySelector("." + CHAT_NOTE_CLASS)) {
-                        const avg = series.length > 1
-                            ? series.reduce((s, d) => s + d, 0) / series.length
-                            : null;
-                        row.appendChild(noteSpan(dur, avg));
-                    }
+                    const avg = series.length > 1
+                        ? series.reduce((s, d) => s + d, 0) / series.length
+                        : null;
+                    setNote(row, dur, avg);
                 } else {
                     series = [];
                 }
@@ -1032,15 +997,14 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.25",
+            version: "1.26",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,
             secondsSinceLastMessage: lastMessageAt ? Math.round((Date.now() - lastMessageAt) / 1000) : null,
             systemChat: lastSystemChat.slice(),
             dungeon: currentDungeon, tier: currentTier, wave: currentWave, active: isDungeonActive,
-            keySeries: keySeries.slice(),
-            pendingNotes: chatNotes.length,
+            annotatedRows: document.querySelectorAll("." + CHAT_NOTE_CLASS).length,
             rowsFound: rows.length,
             keyRowsFound: keyRows.length,
             annotated: document.querySelectorAll("." + CHAT_NOTE_CLASS).length,
@@ -1049,26 +1013,9 @@
         };
     };
 
-    // Survives a page refresh so the first key-count line of a session can still
-    // be measured. Only ever feeds the chat annotation: run validation stays on
-    // boundaries observed by this page load.
-    const CARRY_KEY = "dft_last_keycount";
-    let lastKeyDigits = "";
-    let carriedKeyCountTime = null;
-    let carriedKeyDigits = "";
-    try {
-        const saved = JSON.parse(localStorage.getItem(CARRY_KEY) || "null");
-        if (saved && Number.isFinite(saved.t) && saved.t > 0) {
-            carriedKeyCountTime = saved.t;
-            carriedKeyDigits = typeof saved.d === "string" ? saved.d : "";
-        }
-    } catch (_) {}
-
-    function saveCarriedKeyCount(serverTime, digits) {
-        try { localStorage.setItem(CARRY_KEY, JSON.stringify({ t: serverTime, d: digits })); } catch (_) {}
-    }
-
-    function onKeyCount(serverTime, keyString) {
+    // The key-count line only feeds run validation now: the chat annotation is
+    // derived entirely from the rendered rows.
+    function onKeyCount(serverTime) {
         if (pendingRun) {
             // Both spans run boundary-to-boundary: the key line trails the last
             // wave of a run by a fixed server delay, so the delay cancels out.
@@ -1077,33 +1024,6 @@
             else rejectedRuns++;
             pendingRun = null;
         }
-        // Same key numbers as the previous line: the party stopped and started
-        // again without consuming a key, so the gap is not a run. Caught here as
-        // well as from partyBattleStarted, because a dropped message must not be
-        // able to invent a run.
-        const digits = keyCountDigits(keyString);
-        const restarted = digits !== "" && digits === lastKeyDigits;
-        if (restarted) {
-            keySeries = [];
-        } else if (lastKeyCountTime !== null) {
-            const dur = serverTime - lastKeyCountTime;
-            keySeries.push(dur);
-            const avg = keySeries.length > 1
-                ? keySeries.reduce((s, d) => s + d, 0) / keySeries.length
-                : null;
-            queueChatNote(keyString, dur, avg);
-        } else if (carriedKeyCountTime !== null) {
-            // First line of this page load. The chat panel is empty after a
-            // refresh, so without this the next two runs would go unannotated.
-            const dur = serverTime - carriedKeyCountTime;
-            if (dur > 0 && dur <= SERIES_BREAK_MS && digits !== carriedKeyDigits) {
-                keySeries.push(dur);
-                queueChatNote(keyString, dur, null);
-            }
-        }
-        lastKeyDigits = digits;
-        carriedKeyCountTime = null;
-        saveCarriedKeyCount(serverTime, digits);
         lastKeyCountTime = serverTime;
         lastKeyCountClient = Date.now();
         render();
@@ -1245,26 +1165,19 @@
             const m = message.message.m;
             if (m === "systemChatMessage.partyKeyCount") {
                 const t = Date.parse(message.message.t);
-                let keyString = "";
-                try { keyString = (JSON.parse(message.message.systemMetadata || "{}").keyCountString || "").trim(); } catch (_) {}
-                if (Number.isFinite(t)) onKeyCount(t, keyString);
+                if (Number.isFinite(t)) onKeyCount(t);
             }
             if (m === "systemChatMessage.partyBattleEnded" ||
                 m === "systemChatMessage.partyBattleStopped") {
                 if (isDungeonActive) finishRun();
                 settlePendingRun();
-                // the next key-count line opens a new series, not a run
-                keySeries = [];
+                // the next key-count line opens a run, it does not close one
                 lastKeyCountTime = null;
                 lastKeyCountClient = null;
-                carriedKeyCountTime = null;
             }
             if (m === "systemChatMessage.partyBattleStarted") {
-                // a new series of runs: averages restart here
-                keySeries = [];
                 lastKeyCountTime = null;
                 lastKeyCountClient = null;
-                carriedKeyCountTime = null;
                 tryDetectDungeon();
             }
         }

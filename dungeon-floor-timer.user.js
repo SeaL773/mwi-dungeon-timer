@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.22
+// @version      1.23
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -984,7 +984,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.22",
+            version: "1.23",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,
@@ -1000,6 +1000,19 @@
             lastRows: rows.slice(-4).map(r => r.textContent.slice(0, 120)),
         };
     };
+
+    // Survives a page refresh so the first key-count line of a session can still
+    // be measured. Only ever feeds the chat annotation: run validation stays on
+    // boundaries observed by this page load.
+    const CARRY_KEY = "dft_last_keycount";
+    let carriedKeyCountTime = (() => {
+        const t = Number(localStorage.getItem(CARRY_KEY));
+        return Number.isFinite(t) && t > 0 ? t : null;
+    })();
+
+    function saveCarriedKeyCount(serverTime) {
+        try { localStorage.setItem(CARRY_KEY, String(serverTime)); } catch (_) {}
+    }
 
     function onKeyCount(serverTime, keyString) {
         if (pendingRun) {
@@ -1017,7 +1030,17 @@
                 ? keySeries.reduce((s, d) => s + d, 0) / keySeries.length
                 : null;
             queueChatNote(keyString, dur, avg);
+        } else if (carriedKeyCountTime !== null) {
+            // First line of this page load. The chat panel is empty after a
+            // refresh, so without this the next two runs would go unannotated.
+            const dur = serverTime - carriedKeyCountTime;
+            if (dur > 0 && dur <= SERIES_BREAK_MS) {
+                keySeries.push(dur);
+                queueChatNote(keyString, dur, null);
+            }
         }
+        carriedKeyCountTime = null;
+        saveCarriedKeyCount(serverTime);
         lastKeyCountTime = serverTime;
         lastKeyCountClient = Date.now();
         render();
@@ -1173,6 +1196,7 @@
                 keySeries = [];
                 lastKeyCountTime = null;
                 lastKeyCountClient = null;
+                carriedKeyCountTime = null;
                 tryDetectDungeon();
             }
         }

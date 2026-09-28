@@ -34,6 +34,14 @@ Every dungeon keeps its own history, split by difficulty tier (T0/T1/T2). The
 tier is read from the action the server reports, so switching difficulty
 switches bucket automatically — T0 averages are never mixed with T2 averages.
 
+### 💬 Run Time In Party Chat
+
+Each `Key counts:` line in the party chat gets the run time appended, plus the
+running average of the current series. Consecutive key-count lines are exactly
+one run apart, so this is measured on server timestamps and needs no parsing of
+the chat text. The line is matched by its key-count payload rather than the
+localised prefix, so it works on the English and Chinese clients alike.
+
 ### 🛡 Smart Data Handling
 
 - **Mid-dungeon join**: Waits for next clean 5-floor boundary before recording. Partial runs excluded from averages.
@@ -208,6 +216,12 @@ MIT
 
 每个地牢各自保存历史，并按难度档位（T0/T1/T2）分开。难度取自服务器下发的动作数据，
 换难度会自动切换到对应的记录桶，T0 的均时不会和 T2 混在一起。
+
+### 💬 队伍频道显示单轮用时
+
+每条 `钥匙数量` 消息后面会直接附上这一轮的用时，以及本次连打的滚动平均。相邻两条钥匙数
+消息正好相隔一轮，因此用时取自服务器时间戳，不需要解析聊天文本。匹配用的是消息里的钥匙
+数据本身，不是本地化的前缀，所以中英文客户端都能生效。
 
 ### 🛡 智能数据处理
 

@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.18
+// @version      1.19
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -69,6 +69,9 @@
                 panelEl.querySelector("#dft_wipe").title = L.resetAllTitle;
                 panelEl.querySelector("#dft_tog").textContent = panelExpanded ? L.collapse : L.expand;
             }
+            // chat annotations carry a translated label, rebuild them too
+            for (const el of document.querySelectorAll("." + CHAT_NOTE_CLASS)) el.remove();
+            annotateChat();
             render();
         }
     }
@@ -799,7 +802,46 @@
         render();
     }
 
-    function onKeyCount(serverTime) {
+    // ── Chat annotation ──
+    // The key-count line is what players actually read to judge a run, so the
+    // run time is written straight into it. The line is matched by its
+    // keyCountString payload rather than by the localised "Key counts:" prefix,
+    // so this works on both the English and Chinese clients.
+    const CHAT_NOTE_CLASS = "dft-run-time";
+    const CHAT_NOTE_LIMIT = 30;
+    let chatNotes = [];        // {keyString, dur, avg}
+    let keySeries = [];        // run durations since the last "battle started"
+
+    function queueChatNote(keyString, dur, avg) {
+        if (!keyString) return;
+        chatNotes.push({ keyString, dur, avg });
+        if (chatNotes.length > CHAT_NOTE_LIMIT) chatNotes.shift();
+        setTimeout(annotateChat, 100);
+    }
+
+    // Re-applied on every pass: the game rebuilds the chat rows whenever the
+    // party tab is re-rendered, which drops the annotations with them.
+    function annotateChat() {
+        if (!chatNotes.length || !document.body) return;
+        const rows = document.querySelectorAll('[class*="ChatMessage_chatMessage"]');
+        if (!rows.length) return;
+        for (const note of chatNotes) {
+            for (const row of rows) {
+                if (row.querySelector("." + CHAT_NOTE_CLASS)) continue;
+                if (!row.textContent.includes(note.keyString)) continue;
+                const span = document.createElement("span");
+                span.className = CHAT_NOTE_CLASS;
+                span.innerHTML = `<span style="color:#ffa726;"> ${fmt(note.dur)}</span>` +
+                    (note.avg !== null
+                        ? `<span style="color:#d2b48c;"> ${L.avgTime}:</span><span style="color:#ffa726;"> ${fmt(note.avg)}</span>`
+                        : "");
+                row.appendChild(span);
+                break;
+            }
+        }
+    }
+
+    function onKeyCount(serverTime, keyString) {
         if (pendingRun) {
             // Both spans run boundary-to-boundary: the key line trails the last
             // wave of a run by a fixed server delay, so the delay cancels out.
@@ -807,6 +849,14 @@
             if (Math.abs(observed - pendingRun.boundarySpan) <= KEY_COUNT_TOLERANCE_MS) commitRun(pendingRun);
             else rejectedRuns++;
             pendingRun = null;
+        }
+        if (lastKeyCountTime !== null) {
+            const dur = serverTime - lastKeyCountTime;
+            keySeries.push(dur);
+            const avg = keySeries.length > 1
+                ? keySeries.reduce((s, d) => s + d, 0) / keySeries.length
+                : null;
+            queueChatNote(keyString, dur, avg);
         }
         lastKeyCountTime = serverTime;
         lastKeyCountClient = Date.now();
@@ -949,14 +999,22 @@
             const m = message.message.m;
             if (m === "systemChatMessage.partyKeyCount") {
                 const t = Date.parse(message.message.t);
-                if (Number.isFinite(t)) onKeyCount(t);
+                let keyString = "";
+                try { keyString = (JSON.parse(message.message.systemMetadata || "{}").keyCountString || "").trim(); } catch (_) {}
+                if (Number.isFinite(t)) onKeyCount(t, keyString);
             }
             if (m === "systemChatMessage.partyBattleEnded" ||
                 m === "systemChatMessage.partyBattleStopped") {
                 if (isDungeonActive) finishRun();
                 settlePendingRun();
             }
-            if (m === "systemChatMessage.partyBattleStarted") tryDetectDungeon();
+            if (m === "systemChatMessage.partyBattleStarted") {
+                // a new series of runs: averages restart here
+                keySeries = [];
+                lastKeyCountTime = null;
+                lastKeyCountClient = null;
+                tryDetectDungeon();
+            }
         }
     }
 
@@ -995,6 +1053,7 @@
         ensurePanel();
         updateLang();
         render();
+        annotateChat();
     }, 2000);
     (function wait() {
         if (document.body) {

@@ -3,7 +3,7 @@
 // @name:zh-CN   地牢计时器
 // @name:zh-TW   地牢計時器
 // @namespace    http://tampermonkey.net/
-// @version      1.27
+// @version      1.28
 // @description  Track dungeon floor group times with speedrun-style comparison & extra boss spawn counter for Milky Way Idle
 // @description:zh-CN  银河奶牛放置 - 地牢每5层分组计时，支持多轮均时对比（Speedrun风格）+ 额外Boss刷新统计
 // @description:zh-TW  銀河奶牛放置 - 地牢每5層分組計時，支持多輪均時對比（Speedrun風格）+ 額外Boss刷新統計
@@ -959,32 +959,58 @@
         for (const panelRows of panels.values()) annotatePanel(panelRows);
     }
 
+    // Two different decisions hang off the lines between two key counts:
+    //  - whether that interval was a clean run worth annotating, and
+    //  - whether the average should start over.
+    // A failed wave or a member going not-ready spoils the interval, but the
+    // party keeps farming and the average must carry on. Only a real (re)start
+    // opens a new series. "Battle started" is printed in the very second of the
+    // key-count line that opens the first run, whereas every other system line
+    // precedes the next key line by the ~3s server delay or more, so the gap
+    // tells the two apart without reading the localised text.
+    const RESTART_WINDOW_MS = 1000;
+
+    function sameRoster(a, b) {
+        if (a.size !== b.size) return false;
+        for (const name of a.keys()) if (!b.has(name)) return false;
+        return true;
+    }
+
     function annotatePanel(rows) {
-        let prev = null;    // {clock, counts} of the previous key-count line
+        let prev = null;             // {clock, counts} of the previous key-count line
         let series = [];
+        let interrupted = false;     // a system line appeared since the previous key line
+        let lastSystemClock = null;
         for (const row of rows) {
             if (!KEY_ROW_RE.test(row.textContent)) {
-                // battle started / ended / a member going not-ready: whatever it
-                // says, a system line between two key lines means the run chain
-                // was broken
-                if (isSystemRow(row)) { prev = null; series = []; }
+                if (isSystemRow(row)) {
+                    interrupted = true;
+                    lastSystemClock = chatRowClock(row);
+                }
                 continue;
             }
             const clock = chatRowClock(row);
             const counts = keyCounts(row.textContent);
+
+            let sinceSystem = interrupted && clock !== null && lastSystemClock !== null
+                ? clock - lastSystemClock : null;
+            if (sinceSystem !== null && sinceSystem < 0) sinceSystem += 86400000;
+            const restarted = sinceSystem !== null && sinceSystem <= RESTART_WINDOW_MS;
+            if (restarted || (prev && !sameRoster(counts, prev.counts))) series = [];
+
             let annotated = false;
-            if (prev && clock !== null && prev.clock !== null) {
+            if (prev && !interrupted && clock !== null && prev.clock !== null) {
                 let dur = clock - prev.clock;
                 if (dur < 0) dur += 86400000;   // the chat crossed midnight
-                if (dur > 0 && dur <= SERIES_BREAK_MS && anyCountDropped(counts, prev.counts)) {
+                if (dur > SERIES_BREAK_MS) {
+                    series = [];                // idle for over an hour: a new session
+                } else if (dur > 0 && anyCountDropped(counts, prev.counts)) {
                     series.push(dur);
                     const avg = series.length > 1
                         ? series.reduce((s, d) => s + d, 0) / series.length
                         : null;
                     setNote(row, dur, avg);
                     annotated = true;
-                } else {
-                    series = [];
                 }
             }
             // A row this pass decided against must lose any note it is carrying,
@@ -992,6 +1018,8 @@
             // while the chain was still incomplete, stays on screen forever.
             if (!annotated) clearNote(row);
             prev = { clock, counts };
+            interrupted = false;
+            lastSystemClock = null;
         }
     }
 
@@ -1018,7 +1046,7 @@
         const keyRows = rows.filter(r => KEY_ROW_RE.test(r.textContent));
         const top = Object.getOwnPropertyDescriptor(win.MessageEvent.prototype, "data");
         return {
-            version: "1.27",
+            version: "1.28",
             hookIsOurs: !!(top && top.get && top.get.__dft),
             hookInstalls,
             messagesSeen: msgSeen,
